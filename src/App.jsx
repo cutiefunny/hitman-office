@@ -38,12 +38,36 @@ function App() {
 
       <div style={{ display: 'flex', flex: 1 }}>
         {/* 사이드바: 작전 요약 및 무전 */}
-        <aside style={{ width: '220px', "border-right": '1px solid #0f0', padding: '15px', "background-color": '#000' }}>
-          <h3 style={{ "border-bottom": '1px solid #0f0' }}>AGENTS</h3>
-          <div style={{ "margin-bottom": '10px', color: '#00ff00' }}>[ON] KILLER 1 - 대기 중</div>
-          <div style={{ "margin-bottom": '10px', color: '#00ffff' }}>[ON] KILLER 2 - 대기 중</div>
-          <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
-          <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
+        <aside style={{ width: '220px', "border-right": '1px solid #0f0', padding: '15px', "background-color": '#000', display: 'flex', 'flex-direction': 'column' }}>
+          <div>
+            <h3 style={{ "border-bottom": '1px solid #0f0' }}>AGENTS</h3>
+            <div style={{ "margin-bottom": '10px', color: '#00ff00' }}>[ON] KILLER 1 - 대기 중</div>
+            <div style={{ "margin-bottom": '10px', color: '#00ffff' }}>[ON] KILLER 2 - 대기 중</div>
+            <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
+            <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
+          </div>
+
+          <div style={{ 'margin-top': 'auto' }}>
+            <button
+              style={{
+                width: '100%',
+                padding: '10px',
+                background: '#f00',
+                color: '#fff',
+                border: '1px solid #fff',
+                cursor: 'pointer',
+                'font-family': 'monospace',
+                'font-weight': 'bold',
+                'font-size': '14px'
+              }}
+              onClick={() => window.commandAutoAttack && window.commandAutoAttack()}
+              onMouseOver={(e) => e.target.style.background = '#d00'}
+              onMouseOut={(e) => e.target.style.background = '#f00'}
+            >
+              [ 자율 교전 (SEEK & DESTROY) ]
+            </button>
+            <div style={{ 'font-size': '10px', color: '#888', 'margin-top': '5px', 'text-align': 'center' }}>전 요원 타겟 강제 추적</div>
+          </div>
         </aside>
 
         {/* 메인 작전 화면: Phaser 캔버스 */}

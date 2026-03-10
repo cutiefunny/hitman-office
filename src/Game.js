@@ -88,6 +88,8 @@ export default function createGame(containerId) {
                 this.physics.add.collider(this.killer1, this.walls);
                 this.physics.add.collider(this.killer2, this.walls);
                 this.physics.add.collider(this.killer1, this.killer2);
+                this.physics.add.collider(this.killer1, this.target);
+                this.physics.add.collider(this.killer2, this.target);
 
                 // 타겟 인터랙티브 설정 (공격 명령용)
                 this.target.setInteractive({ useHandCursor: true });
@@ -156,6 +158,27 @@ export default function createGame(containerId) {
                     this.isDragRotating = false;
                 });
 
+                // --- 외부 API: 자율 교전 명령 ---
+                window.commandAutoAttack = () => {
+                    if (this.gameEnded) return;
+                    if (this.target && this.target.active) {
+                        this.isAttacking1 = true;
+                        this.killer1Dest = null;
+                        this.isAttacking2 = true;
+                        this.killer2Dest = null;
+
+                        // 선택 초기화
+                        if (this.selectedAgent) {
+                            let color = this.selectedAgent === this.killer1 ? 0x00ff00 : 0x00ffff;
+                            this.selectedAgent.setStrokeStyle(2, color);
+                            this.selectedAgent = null;
+                        }
+
+                        this.statusText.setText(`[ 명령: 전 요원 자율 교전 (SEEK & DESTROY) 개시 ]`);
+                        this.statusText.setFill('#f00');
+                    }
+                };
+
                 // --- 그래픽 효과 (공격 및 시야) ---
                 this.attackLine1 = this.add.graphics();
                 this.attackLine2 = this.add.graphics();
@@ -169,7 +192,7 @@ export default function createGame(containerId) {
                         ? Phaser.Math.Angle.Between(fleeFrom.x, fleeFrom.y, actor.x, actor.y)
                         : Phaser.Math.Angle.Between(actor.x, actor.y, targetPos.x, targetPos.y);
 
-                    const sensorDist = 80;
+                    const sensorDist = fleeFrom ? 80 : 50; // 추격자는 벽에 더 바짝 붙어 우회하도록 센서 반경 단축
                     let bestAngle = baseAngle;
                     let maxScore = -Infinity;
                     let foundPath = false;
@@ -209,24 +232,63 @@ export default function createGame(containerId) {
 
                         if (!blocked) {
                             // --- 정교한 스코어링 시스템 ---
-                            let score = (this.avoidanceOffsets.length - i) * 80;
-
-                            // 떨림 방지 핵심: 현재 이동 방향(Inertia)과의 일치도에 큰 가산점 부여
+                            let score = 0;
                             const inertiaDiff = Math.abs(Phaser.Math.Angle.Wrap(testAngle - currentVelAngle));
-                            score += (Math.PI - inertiaDiff) * 150;
 
-                            // 중앙 지향 (구석 방지)
-                            const distToCenter = Phaser.Math.Distance.Between(actor.x + cos * sensorDist, actor.y + sin * sensorDist, 400, 300);
-                            score += (800 - distToCenter) * 0.5;
+                            if (fleeFrom) {
+                                // [도망 빙향]
+                                score = (this.avoidanceOffsets.length - i) * 80;
+                                score += (Math.PI - inertiaDiff) * 150; // 관성 유지 중요
+                                const distToCenter = Phaser.Math.Distance.Between(actor.x + cos * sensorDist, actor.y + sin * sensorDist, 400, 300);
+                                score += (800 - distToCenter) * 0.5; // 중앙 지향
 
-                            if (score > maxScore) {
-                                maxScore = score;
-                                bestAngle = testAngle;
-                                foundPath = true;
+                                if (score > maxScore) {
+                                    maxScore = score;
+                                    bestAngle = testAngle;
+                                    foundPath = true;
+                                }
+                            } else {
+                                // [추격/이동 방향]
+                                // 정면에서 얼마나 벗어났는지가 가장 중요
+                                score = (this.avoidanceOffsets.length - i) * 100;
+                                score += (Math.PI - inertiaDiff) * 80; // 부드러운 우회를 위한 약간의 관성
+
+                                // 타겟과의 거리 감소 우선
+                                if (targetPos) {
+                                    const distToTarget = Phaser.Math.Distance.Between(actor.x + cos * sensorDist, actor.y + sin * sensorDist, targetPos.x, targetPos.y);
+                                    score -= distToTarget * 1.5;
+                                }
+
+                                // 킬러 간 동선 분산 협의 (Tactical Flanking)
+                                let otherKiller = null;
+                                if (actor === this.killer1) otherKiller = this.killer2;
+                                else if (actor === this.killer2) otherKiller = this.killer1;
+
+                                if (otherKiller && otherKiller.active) {
+                                    const distToOther = Phaser.Math.Distance.Between(actor.x, actor.y, otherKiller.x, otherKiller.y);
+                                    if (distToOther < 250) {
+                                        // 팀원 위치를 향해 가는 경로일 경우 감점 (양각 포위 유도)
+                                        const angleToOther = Phaser.Math.Angle.Between(actor.x, actor.y, otherKiller.x, otherKiller.y);
+                                        const angleDiffToOther = Math.abs(Phaser.Math.Angle.Wrap(testAngle - angleToOther));
+
+                                        score -= (Math.PI - angleDiffToOther) * 80;
+
+                                        // 병목 현상 방지: 매우 가까우면 동선이 겹치지 않게 페널티 강화
+                                        if (distToOther < 120) {
+                                            score -= (Math.PI - angleDiffToOther) * 250;
+                                        }
+                                    }
+                                }
+
+                                if (score > maxScore) {
+                                    maxScore = score;
+                                    bestAngle = testAngle;
+                                    foundPath = true;
+                                }
+
+                                // 추격 시 정면이 뚫려있고 (i==0) 장애물이 전혀 없으면 즉각 결정
+                                if (i === 0) break;
                             }
-
-                            // 추격 시 정면이 뚫리면 즉각 결정
-                            if (i === 0 && !fleeFrom) break;
                         }
                     }
 
@@ -236,7 +298,10 @@ export default function createGame(containerId) {
                             actor.body.setVelocity(Math.cos(angleToCenter) * speed, Math.sin(angleToCenter) * speed);
                             actor.lastValidAngle = angleToCenter;
                         } else {
-                            actor.body.setVelocity(0, 0);
+                            // 킬러가 꽉 막힌 경우, 벽을 타고 미끄러지도록 임시 회피 기동
+                            const slideAngle = currentVelAngle + (Math.random() > 0.5 ? Math.PI / 2 : -Math.PI / 2);
+                            actor.body.setVelocity(Math.cos(slideAngle) * (speed * 0.5), Math.sin(slideAngle) * (speed * 0.5));
+                            actor.lastValidAngle = slideAngle;
                         }
                         return;
                     }
@@ -360,6 +425,8 @@ export default function createGame(containerId) {
                     this.targetVision.moveTo(this.target.x, this.target.y);
 
                     const enhancedRayCount = 60; // 수평 벽 투과 방지를 위해 레이캐스트 밀도 증가
+                    const fovIntersection = []; // 최적화: 매 레이캐스트마다 배열을 생성하지 않고 하나를 재사용
+
                     for (let i = 0; i <= enhancedRayCount; i++) {
                         const rayAngle = (targetAngle - fovRadians / 2) + (fovRadians * (i / enhancedRayCount));
                         let rayEndX = this.target.x + Math.cos(rayAngle) * detectionRange;
@@ -369,10 +436,10 @@ export default function createGame(containerId) {
                         let minOpacityDist = detectionRange;
 
                         for (let wall of this.cachedWallBounds) {
-                            const intersection = [];
+                            fovIntersection.length = 0; // 기존 배열 비우기 (GC 방지)
                             // 벽과 교차하는 점을 모두 찾아 가장 가까운 곳에서 레이를 끊음
-                            if (Phaser.Geom.Intersects.GetLineToRectangle(line, wall, intersection)) {
-                                for (let p of intersection) {
+                            if (Phaser.Geom.Intersects.GetLineToRectangle(line, wall, fovIntersection)) {
+                                for (let p of fovIntersection) {
                                     const d = Phaser.Math.Distance.Between(this.target.x, this.target.y, p.x, p.y);
                                     if (d < minOpacityDist) {
                                         minOpacityDist = d;
@@ -401,7 +468,7 @@ export default function createGame(containerId) {
                 let targetNeutralized = false;
 
                 agents.forEach(data => {
-                    const { agent, dest, isAttacking, line, vision, label, color } = data;
+                    let { agent, dest, isAttacking, line, vision, label, color } = data;
                     if (!agent || !agent.body) return;
 
                     line.clear();
@@ -440,8 +507,36 @@ export default function createGame(containerId) {
                         ? Phaser.Math.Distance.Between(agent.x, agent.y, this.target.x, this.target.y)
                         : Infinity;
 
-                    // [자동 공격 시스템] 사정거리(attackRange) 안에 들어오면 즉시 사격
-                    if (distToTarget <= attackRange && this.target && this.target.active) {
+                    // 통합 사격-벽 차폐 검사 (중복 연산 구조 최적화)
+                    let lineOfSightBlocked = true;
+                    if (this.target && this.target.active) {
+                        const atkLine = new Phaser.Geom.Line(agent.x, agent.y, this.target.x, this.target.y);
+                        lineOfSightBlocked = false;
+                        for (let wall of this.cachedWallBounds) {
+                            if (Phaser.Geom.Intersects.LineToRectangle(atkLine, wall)) {
+                                lineOfSightBlocked = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // [자율 교전 시스템 (Overwatch)] 대기 중 시야에 타겟이 들어오면 자동 추적 및 공격 전환
+                    if (!isAttacking && !dest && !lineOfSightBlocked && distToTarget <= kRange) {
+                        const angleToTarget = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
+                        const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(angleToTarget - killerAngle));
+
+                        if (angleDiff <= kFov / 2) {
+                            // 타겟 포착! 자동 추격 모드 활성화 (차폐 로직은 위에서 이미 완료)
+                            if (agent === this.killer1) this.isAttacking1 = true;
+                            else this.isAttacking2 = true;
+                            isAttacking = true; // 현재 프레임 반영용
+                            this.statusText.setText(`[ 시스템 경고: ${data.id} 타겟 식별, 강제 교전 개시 ]`);
+                            this.statusText.setFill('#ff6600');
+                        }
+                    }
+
+                    // [자동 사격 시스템] 사정거리(attackRange) 안에 들어오고 벽에 가려지지 않으면 즉시 사격
+                    if (distToTarget <= attackRange && !lineOfSightBlocked) {
                         agent.body.setVelocity(0, 0); // 사격 시 정지 (정밀 조준)
 
                         if (time > this.lastHitTime + 500) {
@@ -466,7 +561,7 @@ export default function createGame(containerId) {
                             this.target.setStrokeStyle(2, 0xff0000);
                         }
                     }
-                    // [이동 로직] 사정거리 밖이거나 타겟이 없을 때만 이동 수행
+                    // [이동 로직] 사정거리 밖이거나, 사정거리 안이라도 벽에 가려져 사격할 수 없을 때 이동 수행
                     else {
                         if (isAttacking && this.target && this.target.active) {
                             // 1. 추격 명령 수행 중
