@@ -41,6 +41,7 @@ function App() {
         <aside style={{ width: '220px', "border-right": '1px solid #0f0', padding: '15px', "background-color": '#000' }}>
           <h3 style={{ "border-bottom": '1px solid #0f0' }}>AGENTS</h3>
           <div style={{ "margin-bottom": '10px', color: '#00ff00' }}>[ON] KILLER 1 - 대기 중</div>
+          <div style={{ "margin-bottom": '10px', color: '#00ffff' }}>[ON] KILLER 2 - 대기 중</div>
           <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
           <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
         </aside>
