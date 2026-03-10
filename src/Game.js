@@ -102,7 +102,7 @@ export default function createGame(containerId) {
                         const clicked = gameObjects[0];
 
                         // 요원 선택 및 해제 처리
-                        if (clicked === this.killer1 || clicked === this.killer2) {
+                        if ((clicked === this.killer1 && this.killer1.active) || (clicked === this.killer2 && this.killer2.active)) {
                             this.isDragRotating = true; // 드래그 회전 시작
 
                             // 이미 선택된 요원을 다시 클릭하면 선택 해제
@@ -177,6 +177,31 @@ export default function createGame(containerId) {
                         this.statusText.setText(`[ 명령: 전 요원 자율 교전 (SEEK & DESTROY) 개시 ]`);
                         this.statusText.setFill('#f00');
                     }
+                };
+
+                // --- 외부 API: 요원 상태 토글 ---
+                window.toggleAgent = (id, isActive) => {
+                    if (this.gameEnded) return;
+                    let agent = id === 1 ? this.killer1 : this.killer2;
+                    let label = id === 1 ? this.killer1Label : this.killer2Label;
+
+                    if (!isActive) {
+                        // 선택 해제 및 추격 정지
+                        if (this.selectedAgent === agent) {
+                            this.selectedAgent.setStrokeStyle(2, id === 1 ? 0x00ff00 : 0x00ffff);
+                            this.selectedAgent = null;
+                        }
+                        if (agent.body) agent.body.setVelocity(0, 0);
+                        if (id === 1) { this.isAttacking1 = false; this.killer1Dest = null; }
+                        else { this.isAttacking2 = false; this.killer2Dest = null; }
+                    }
+
+                    if (agent) agent.setActive(isActive).setVisible(isActive);
+                    if (label) label.setActive(isActive).setVisible(isActive);
+                    if (agent && agent.body) agent.body.enable = isActive;
+
+                    this.statusText.setText(`[ 명령: KILLER ${id} - ${isActive ? '전투력 복원 (ONLINE)' : '무장 해제 (OFFLINE)'} ]`);
+                    this.statusText.setFill(isActive ? (id === 1 ? '#0f0' : '#0ff') : '#888');
                 };
 
                 // --- 그래픽 효과 (공격 및 시야) ---
@@ -339,6 +364,7 @@ export default function createGame(containerId) {
 
                     // 각 킬러가 시야 콘 안에 있고 장애물에 가려지지 않았는지 체크
                     const checkInFOV = (killer, dist) => {
+                        if (!killer || !killer.active) return false;
                         if (dist > detectionRange) return false;
                         if (dist < 50) return true; // 초근접 거리는 벽 뒤라도 직감으로 감지 (선택 사항)
 
@@ -357,6 +383,7 @@ export default function createGame(containerId) {
 
                     const isPanicking = this.target.panicTime && time < this.target.panicTime;
                     const isFleeing = inFOV1 || inFOV2 || isPanicking;
+                    const isStunned = this.target.stunTime && time < this.target.stunTime;
 
                     let nearestDetectedKiller;
                     if (isPanicking) {
@@ -366,52 +393,62 @@ export default function createGame(containerId) {
                         nearestDetectedKiller = (inFOV1 && inFOV2) ? (dist1 < dist2 ? this.killer1 : this.killer2) : (inFOV1 ? this.killer1 : this.killer2);
                     }
 
-                    // 1. AI 가동 (이동 속도 결정 및 이동 수행)
-                    if (isFleeing) {
-                        // [도망 모드] 감지된 위협으로부터 도망
-                        this.moveWithAvoidance(this.target, null, targetFleeSpeed, nearestDetectedKiller);
-                        if (this.targetLabel.text !== "CAUTION: EVADING") {
-                            this.targetLabel.setText("CAUTION: EVADING").setFill('#ff0');
+                    if (isStunned) {
+                        // [스턴 상태] 넉백 밀림 유지 및 감속. AI 조작 불능.
+                        this.target.body.setVelocity(this.target.body.velocity.x * 0.9, this.target.body.velocity.y * 0.9);
+                        if (this.targetLabel.text !== "STUNNED") {
+                            this.targetLabel.setText("STUNNED").setFill('#aaaaaa');
                         }
                     } else {
-                        // [순찰 모드]
-                        const dest = waypoints[currentWaypointIndex];
-                        const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, dest.x, dest.y);
-                        if (distToDest < 10) {
-                            currentWaypointIndex = (currentWaypointIndex + 1) % waypoints.length;
+                        // 1. AI 가동 (이동 속도 결정 및 이동 수행)
+                        if (isFleeing) {
+                            // [도망 모드] 감지된 위협으로부터 도망
+                            this.moveWithAvoidance(this.target, null, targetFleeSpeed, nearestDetectedKiller);
+                            if (this.targetLabel.text !== "CAUTION: EVADING") {
+                                this.targetLabel.setText("CAUTION: EVADING").setFill('#ff0');
+                            }
                         } else {
-                            this.moveWithAvoidance(this.target, dest, targetNormalSpeed);
+                            // [순찰 모드]
+                            const dest = waypoints[currentWaypointIndex];
+                            const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, dest.x, dest.y);
+                            if (distToDest < 10) {
+                                currentWaypointIndex = (currentWaypointIndex + 1) % waypoints.length;
+                            } else {
+                                this.moveWithAvoidance(this.target, dest, targetNormalSpeed);
+                            }
+                            if (this.targetLabel.text !== "TARGET") {
+                                this.targetLabel.setText("TARGET").setFill('#f00');
+                            }
                         }
-                        if (this.targetLabel.text !== "TARGET") {
-                            this.targetLabel.setText("TARGET").setFill('#f00');
+
+                        // 2. 물리적 상태에 기반한 시각적 회전 및 시야 처리 (스턴 상태가 아닐 때만 적용)
+                        const speed = this.target.body.speed;
+                        const moveAngle = speed > 5
+                            ? Math.atan2(this.target.body.velocity.y, this.target.body.velocity.x)
+                            : (this.target.lastValidAngle || 0);
+
+                        if (this.target.visualAngle === undefined) this.target.visualAngle = moveAngle;
+
+                        // 180도 회전 시 지정된 전술적 회전 규칙 적용
+                        const diff = Phaser.Math.Angle.Wrap(moveAngle - this.target.visualAngle);
+                        if (Math.abs(diff) > Math.PI * 0.9) {
+                            const targetGoingDown = moveAngle > 0 && moveAngle < Math.PI;
+                            const step = targetGoingDown ? 0.15 : -0.15; // 회전 속도 약간 상향
+                            this.target.visualAngle += step;
+                        } else {
+                            // 일반 회전 속도도 상향하여 반응성을 높임
+                            this.target.visualAngle = Phaser.Math.Angle.RotateTo(this.target.visualAngle, moveAngle, 0.2);
+                        }
+                        const targetAngle = this.target.visualAngle;
+                        this.target.rotation = targetAngle; // 몸체 회전 동기화
+
+                        // 핵심 수정: 타겟이 미끄러지지 않도록 (Sliding 방지) 시선이 향하는 방향으로만 전진하게 보정
+                        if (speed > 5) {
+                            this.target.body.setVelocity(Math.cos(targetAngle) * speed, Math.sin(targetAngle) * speed);
                         }
                     }
 
-                    // 2. 물리적 상태에 기반한 시각적 회전 및 시야 처리
-                    const speed = this.target.body.speed;
-                    const moveAngle = speed > 5
-                        ? Math.atan2(this.target.body.velocity.y, this.target.body.velocity.x)
-                        : (this.target.lastValidAngle || 0);
-
-                    if (this.target.visualAngle === undefined) this.target.visualAngle = moveAngle;
-
-                    // 180도 회전 시 지정된 전술적 회전 규칙 적용
-                    const diff = Phaser.Math.Angle.Wrap(moveAngle - this.target.visualAngle);
-                    if (Math.abs(diff) > Math.PI * 0.9) {
-                        const targetGoingDown = moveAngle > 0 && moveAngle < Math.PI;
-                        const step = targetGoingDown ? 0.15 : -0.15; // 회전 속도 약간 상향
-                        this.target.visualAngle += step;
-                    } else {
-                        // 일반 회전 속도도 상향하여 반응성을 높임
-                        this.target.visualAngle = Phaser.Math.Angle.RotateTo(this.target.visualAngle, moveAngle, 0.2);
-                    }
-                    const targetAngle = this.target.visualAngle;
-                    this.target.rotation = targetAngle; // 몸체 회전 동기화
-
-                    // 핵심 수정: 타겟이 미끄러지지 않도록 (Sliding 방지) 시선이 향하는 방향으로만 전진하게 보정
-                    if (speed > 5) {
-                        this.target.body.setVelocity(Math.cos(targetAngle) * speed, Math.sin(targetAngle) * speed);
-                    }
+                    const targetAngle = this.target.visualAngle || 0;
 
                     // 3. 시야 콘 그리기 (레이캐스팅 방식)
                     this.targetVision.clear();
@@ -474,6 +511,8 @@ export default function createGame(containerId) {
                     line.clear();
                     vision.clear();
 
+                    if (!agent.active) return; // 요원이 비활성화된 상태면 로직 생략
+
                     // [킬러 방향 및 시야 처리]
                     let killerAngle = agent.lastAngle || 0;
 
@@ -535,9 +574,11 @@ export default function createGame(containerId) {
                         }
                     }
 
-                    // [자동 사격 시스템] 사정거리(attackRange) 안에 들어오고 벽에 가려지지 않으면 즉시 사격
-                    if (distToTarget <= attackRange && !lineOfSightBlocked) {
-                        agent.body.setVelocity(0, 0); // 사격 시 정지 (정밀 조준)
+                    // [자동 공격 시스템] 사거리 안이고, 시야가 확보되었을 때 수행
+                    const currentAttackRange = agent === this.killer1 ? 150 : 50;
+
+                    if (distToTarget <= currentAttackRange && !lineOfSightBlocked) {
+                        agent.body.setVelocity(0, 0); // 사격/근접 시 정지 (정밀 조준 및 타격 자세)
 
                         if (time > this.lastHitTime + 500) {
                             this.targetHits++;
@@ -547,21 +588,35 @@ export default function createGame(containerId) {
                             this.target.panicTime = time + 2000;
                             this.target.panicSource = agent;
 
+                            // Killer 2 (근접 전투) 특수 효과: 강력한 넉백 및 1초 스턴 (제압)
+                            if (agent === this.killer2) {
+                                this.target.stunTime = time + 1000;
+                                const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
+                                this.target.body.setVelocity(Math.cos(hitAngle) * 500, Math.sin(hitAngle) * 500); // 넉백 파워
+                            }
+
                             if (this.targetHits >= 10) {
                                 targetNeutralized = true;
                             }
                         }
 
-                        // 시각적 사격 효과
+                        // 시각적 공격 효과 분리
                         if (Phaser.Math.Between(0, 10) > 4) {
-                            line.lineStyle(2, agent === this.killer1 ? 0x00ff00 : 0x00ffff, 1);
-                            line.lineBetween(agent.x, agent.y, this.target.x, this.target.y);
+                            if (agent === this.killer1) {
+                                // 총기 발사 궤적 (레이저)
+                                line.lineStyle(2, 0x00ff00, 1);
+                                line.lineBetween(agent.x, agent.y, this.target.x, this.target.y);
+                            } else {
+                                // 근접 타격 충격파 이펙트 (슬래시 원형)
+                                line.lineStyle(4, 0x00ffff, 1);
+                                line.strokeCircle(this.target.x, this.target.y, 25);
+                            }
                             this.target.setStrokeStyle(4, 0xffffff);
                         } else {
                             this.target.setStrokeStyle(2, 0xff0000);
                         }
                     }
-                    // [이동 로직] 사정거리 밖이거나, 사정거리 안이라도 벽에 가려져 사격할 수 없을 때 이동 수행
+                    // [이동 로직] 사거리 밖이거나 타겟을 때릴 수 없는 상태일 때 이동 속행
                     else {
                         if (isAttacking && this.target && this.target.active) {
                             // 1. 추격 명령 수행 중

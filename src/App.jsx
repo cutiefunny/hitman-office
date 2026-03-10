@@ -1,10 +1,25 @@
 // src/App.jsx
-import { onMount, onCleanup } from 'solid-js';
+import { onMount, onCleanup, createSignal } from 'solid-js';
 import createGame from './Game';
 
 function App() {
   let gameContainer; // Phaser 캔버스가 들어갈 div의 ref
   let gameInstance; // Phaser 게임 인스턴스를 저장할 변수
+
+  const [killer1On, setKiller1On] = createSignal(true);
+  const [killer2On, setKiller2On] = createSignal(true);
+
+  const toggleKiller = (id) => {
+    if (id === 1) {
+      const newState = !killer1On();
+      setKiller1On(newState);
+      if (window.toggleAgent) window.toggleAgent(1, newState);
+    } else {
+      const newState = !killer2On();
+      setKiller2On(newState);
+      if (window.toggleAgent) window.toggleAgent(2, newState);
+    }
+  };
 
   onMount(() => {
     // 컴포넌트가 화면에 붙을 때 Phaser 게임 생성
@@ -41,8 +56,22 @@ function App() {
         <aside style={{ width: '220px', "border-right": '1px solid #0f0', padding: '15px', "background-color": '#000', display: 'flex', 'flex-direction': 'column' }}>
           <div>
             <h3 style={{ "border-bottom": '1px solid #0f0' }}>AGENTS</h3>
-            <div style={{ "margin-bottom": '10px', color: '#00ff00' }}>[ON] KILLER 1 - 대기 중</div>
-            <div style={{ "margin-bottom": '10px', color: '#00ffff' }}>[ON] KILLER 2 - 대기 중</div>
+            <div
+              style={{ "margin-bottom": '10px', color: killer1On() ? '#00ff00' : '#444', cursor: 'pointer', 'user-select': 'none' }}
+              onClick={() => toggleKiller(1)}
+              onMouseOver={(e) => { if (killer1On()) e.target.style.color = '#fff'; }}
+              onMouseOut={(e) => { if (killer1On()) e.target.style.color = '#00ff00'; }}
+            >
+              [{killer1On() ? 'ON ' : 'OFF'}] KILLER 1 - {killer1On() ? '대기 중' : '비활성'}
+            </div>
+            <div
+              style={{ "margin-bottom": '10px', color: killer2On() ? '#00ffff' : '#444', cursor: 'pointer', 'user-select': 'none' }}
+              onClick={() => toggleKiller(2)}
+              onMouseOver={(e) => { if (killer2On()) e.target.style.color = '#fff'; }}
+              onMouseOut={(e) => { if (killer2On()) e.target.style.color = '#00ffff'; }}
+            >
+              [{killer2On() ? 'ON ' : 'OFF'}] KILLER 2 - {killer2On() ? '대기 중' : '비활성'}
+            </div>
             <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
             <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
           </div>
