@@ -1,6 +1,7 @@
-// src/App.jsx
-import { onMount, onCleanup, createSignal } from 'solid-js';
+import { onMount, onCleanup, createSignal, Show } from 'solid-js';
 import createGame from './Game';
+import DevPage from './DevPage';
+import { loadConfig } from './data/AgentConfig';
 
 function App() {
   let gameContainer; // Phaser 캔버스가 들어갈 div의 ref
@@ -9,7 +10,13 @@ function App() {
   const [killer1On, setKiller1On] = createSignal(false);
   const [killer2On, setKiller2On] = createSignal(false);
   const [showVision, setShowVision] = createSignal(false);
+  const [showTargetVision, setShowTargetVision] = createSignal(false);
   const [targetCounterOn, setTargetCounterOn] = createSignal(false);
+  const [isDevMode, setIsDevMode] = createSignal(window.location.hash === '#dev');
+  const [isLoading, setIsLoading] = createSignal(true);
+
+  const [agentInfo, setAgentInfo] = createSignal(null);
+  window.updateAgentInfo = setAgentInfo;
 
   const toggleKiller = (id) => {
     if (id === 1) {
@@ -29,15 +36,25 @@ function App() {
     if (window.toggleKillerVision) window.toggleKillerVision(newState);
   };
 
+  const toggleTargetVision = () => {
+    const newState = !showTargetVision();
+    setShowTargetVision(newState);
+    if (window.toggleTargetVision) window.toggleTargetVision(newState);
+  };
+
   const toggleTargetCounter = () => {
     const newState = !targetCounterOn();
     setTargetCounterOn(newState);
     if (window.toggleTargetCounter) window.toggleTargetCounter(newState);
   };
 
-  onMount(() => {
+  onMount(async () => {
+    // Firebase 데이터 로드
+    await loadConfig();
+    setIsLoading(false);
+
     // 컴포넌트가 화면에 붙을 때 Phaser 게임 생성
-    if (!gameInstance) {
+    if (!gameInstance && !isDevMode()) {
       gameInstance = createGame(gameContainer);
     }
   });
@@ -50,7 +67,7 @@ function App() {
     }
   });
 
-  return (
+  const mainLayout = (
     <div style={{
       display: 'flex',
       "flex-direction": 'column',
@@ -96,6 +113,14 @@ function App() {
             >
               [{targetCounterOn() ? 'ON ' : 'OFF'}] 타겟 자동 반격 (권총)
             </div>
+            <div
+              style={{ "margin-bottom": '10px', color: showTargetVision() ? '#fff' : '#444', cursor: 'pointer', 'user-select': 'none' }}
+              onClick={toggleTargetVision}
+              onMouseOver={(e) => { e.target.style.color = showTargetVision() ? '#fff' : '#888'; }}
+              onMouseOut={(e) => { e.target.style.color = showTargetVision() ? '#fff' : '#444'; }}
+            >
+              [{showTargetVision() ? 'ON ' : 'OFF'}] 타겟 시야각 식별
+            </div>
 
             <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>OPTIONS</h3>
             <div
@@ -127,14 +152,61 @@ function App() {
             >
               [ 자율 교전 (SEEK & DESTROY) ]
             </button>
-            <div style={{ 'font-size': '10px', color: '#888', 'margin-top': '5px', 'text-align': 'center' }}>전 요원 타겟 강제 추적</div>
+            <div style={{ 'font-size': '10px', color: '#888', 'margin-top': '5px', 'text-align': 'center', 'margin-bottom': '15px' }}>전 요원 타겟 강제 추적</div>
+
+            <button
+              style={{
+                width: '100%',
+                padding: '10px',
+                background: '#444',
+                color: '#fff',
+                border: '1px solid #777',
+                cursor: 'pointer',
+                'font-family': 'monospace',
+                'font-weight': 'bold',
+                'font-size': '14px'
+              }}
+              onClick={() => {
+                window.location.hash = '#dev';
+                setIsDevMode(true);
+                if (gameInstance) {
+                  gameInstance.destroy(true);
+                  gameInstance = null;
+                }
+              }}
+              onMouseOver={(e) => e.target.style.background = '#666'}
+              onMouseOut={(e) => e.target.style.background = '#444'}
+            >
+              [ /dev 스탯 관리 ]
+            </button>
           </div>
         </aside>
 
         {/* 메인 작전 화면: Phaser 캔버스 */}
-        <main style={{ flex: 1, position: 'relative', background: '#000' }}>
-          <div ref={gameContainer} style={{ width: '800px', height: '600px', margin: 'auto' }} />
+        <main style={{ flex: 1, position: 'relative', background: '#000', display: 'flex', 'justify-content': 'center', 'align-items': 'center' }}>
+          <div ref={gameContainer} style={{ width: '800px', height: '600px' }} />
         </main>
+
+        {/* 오른쪽 사이드바 (정보 영역) */}
+        <aside style={{ width: '250px', "border-left": '1px solid #0f0', padding: '15px', "background-color": '#000', display: 'flex', 'flex-direction': 'column' }}>
+          <h3 style={{ "border-bottom": '1px solid #0f0' }}>SELECTED INFO</h3>
+          <div style={{ "margin-top": '10px' }}>
+            {agentInfo() ? (
+              <div style={{ color: agentInfo().color }}>
+                <h4 style={{ margin: '0 0 10px 0', "font-size": '18px' }}>[{agentInfo().name}]</h4>
+                <div style={{ "margin-bottom": '5px' }}>▶ HP : {Math.max(0, agentInfo().hp)} / 100</div>
+                <div style={{ "margin-bottom": '5px' }}>▶ DM/AS : {agentInfo().damage} / {agentInfo().attackSpeed}ms</div>
+                <div style={{ "margin-bottom": '5px' }}>▶ ACCURACY : {agentInfo().accuracy}%</div>
+                <div style={{ "margin-bottom": '5px' }}>▶ REACTION : {agentInfo().reactionSpeed}ms</div>
+                <div style={{ "margin-bottom": '5px' }}>▶ INT/PERC : {agentInfo().intelligence} / {agentInfo().perception}px</div>
+              </div>
+            ) : (
+              <div style={{ color: '#555' }}>
+                <p>대상을 클릭하여<br />세부 능력치를 확인하십시오.</p>
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
 
       {/* 하단 명령 콘솔 */}
@@ -147,6 +219,19 @@ function App() {
         />
       </footer>
     </div>
+  );
+
+  return (
+    <Show when={!isLoading()} fallback={
+      <div style={{ background: '#000', color: '#0f0', height: '100vh', display: 'flex', 'flex-direction': 'column', 'justify-content': 'center', 'align-items': 'center', 'font-family': 'monospace' }}>
+        <h1 style={{ 'font-size': '24px', 'margin-bottom': '20px' }}>[ HITMAN OFFICE ]</h1>
+        <div style={{ 'font-size': '18px', 'background': '#001100', 'padding': '20px', 'border': '1px solid #0f0' }}>
+          SYSTEM INITIALIZING... FETCHING AGENT DATA FROM FIREBASE...
+        </div>
+      </div>
+    }>
+      {isDevMode() ? <DevPage /> : mainLayout}
+    </Show>
   );
 }
 

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase": "^12.10.0",
     "phaser": "^3.90.0",
     "solid-js": "^1.9.10"
   },

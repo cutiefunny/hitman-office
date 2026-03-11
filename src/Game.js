@@ -6,6 +6,7 @@ import CombatSystem from './systems/CombatSystem';
 
 import mapUrl from './assets/maps/hitman1.json?url';
 import streetUrl from './assets/maps/street1.jpg';
+import { getKillers, getTargetConfig } from './data/AgentConfig';
 
 export default function createGame(containerId) {
     const config = {
@@ -38,6 +39,7 @@ export default function createGame(containerId) {
                 this.lastTargetHitTime = 0;
                 this.gameEnded = false;
                 this.isDragRotating = false;
+                this.viewedAgent = null; // 선택된 요원 정보 표출용
 
                 // 하위 시스템(매니저) 인스턴스화
                 this.movementSystem = new MovementSystem(this);
@@ -79,25 +81,29 @@ export default function createGame(containerId) {
                     fontSize: '18px'
                 });
 
-                this.killer1 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, 0x00ff00);
-                this.killer1.setStrokeStyle(2, 0x00ff00);
+                // === 요원 & 타겟 데이터 불러오기 ===
+                const killersData = getKillers();
+                const targetData = getTargetConfig();
+
+                this.killer1 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, killersData[0].color);
+                this.killer1.setStrokeStyle(2, killersData[0].color);
                 this.physics.add.existing(this.killer1);
                 this.killer1.body.setCollideWorldBounds(true);
-                this.killer1.hp = 100;
-                this.killer1.stats = { damage: 100, accuracy: 80 }; // 기본 공격력 100, 명중률 80%
-                this.killer1Label = this.add.text(75, 225, "KILLER 1 [HP: 100]", { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
+                this.killer1.hp = killersData[0].hp;
+                this.killer1.stats = { ...killersData[0].stats };
+                this.killer1Label = this.add.text(75, 225, `${killersData[0].name} [HP: ${this.killer1.hp}]`, { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer1.setInteractive({ useHandCursor: true });
                 this.killer1.setActive(false).setVisible(false);
                 this.killer1.body.enable = false;
                 this.killer1Label.setActive(false).setVisible(false);
 
-                this.killer2 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, 0x00ffff);
-                this.killer2.setStrokeStyle(2, 0x00ffff);
+                this.killer2 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, killersData[1].color);
+                this.killer2.setStrokeStyle(2, killersData[1].color);
                 this.physics.add.existing(this.killer2);
                 this.killer2.body.setCollideWorldBounds(true);
-                this.killer2.hp = 100;
-                this.killer2.stats = { damage: 30, accuracy: 100 }; // 근접공격: 공격력 30, 명중률 100%
-                this.killer2Label = this.add.text(75, 425, "KILLER 2 [HP: 100]", { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
+                this.killer2.hp = killersData[1].hp;
+                this.killer2.stats = { ...killersData[1].stats };
+                this.killer2Label = this.add.text(75, 425, `${killersData[1].name} [HP: ${this.killer2.hp}]`, { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer2.setInteractive({ useHandCursor: true });
                 this.killer2.setActive(false).setVisible(false);
                 this.killer2.body.enable = false;
@@ -109,9 +115,9 @@ export default function createGame(containerId) {
                 this.target.setStrokeStyle(2, 0xff0000);
                 this.physics.add.existing(this.target);
                 this.target.body.setCollideWorldBounds(true);
-                this.target.hp = 100; // 타겟 체력
-                this.target.stats = { damage: 100, accuracy: 100 }; // 타겟의 반격 총: 공격력 100, 명중률 100% (원샷원킬)
-                this.targetLabel = this.add.text(tx - 25, ty + 20, "TARGET [HP: 100]", { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
+                this.target.hp = targetData.hp;
+                this.target.stats = { ...targetData.stats };
+                this.targetLabel = this.add.text(tx - 25, ty + 20, `TARGET [HP: ${this.target.hp}]`, { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
 
                 // 콜라이더 설정
                 this.physics.add.collider(this.target, this.walls);
@@ -129,6 +135,13 @@ export default function createGame(containerId) {
 
                     if (gameObjects.length > 0) {
                         const clicked = gameObjects[0];
+
+                        // 클릭한 대상이 킬러이거나 타겟일 경우 정보 열람 대상으로 설정
+                        if ((clicked === this.killer1 && this.killer1.active) ||
+                            (clicked === this.killer2 && this.killer2.active) ||
+                            clicked === this.target) {
+                            this.viewedAgent = clicked;
+                        }
 
                         if ((clicked === this.killer1 && this.killer1.active) || (clicked === this.killer2 && this.killer2.active)) {
                             this.isDragRotating = true;
@@ -216,11 +229,14 @@ export default function createGame(containerId) {
                         if (id === 1) { this.isAttacking1 = false; this.killer1Dest = null; }
                         else { this.isAttacking2 = false; this.killer2Dest = null; }
                     } else if (isActive && (!agent.active || agent.hp <= 0)) {
-                        // 랜덤 시작 위치 지정
+                        // 랜덤 시작 위치 지정 및 설정된 데이터로 스탯 복원
+                        const dat = getKillers();
+                        const kData = id === 1 ? dat[0] : dat[1];
                         agent.x = this.startArea.x + Math.random() * this.startArea.width;
                         agent.y = this.startArea.y + Math.random() * this.startArea.height;
-                        agent.hp = 100;
-                        label.setText(`${id === 1 ? 'KILLER 1' : 'KILLER 2'} [HP: 100]`);
+                        agent.hp = kData.hp;
+                        agent.stats = { ...kData.stats };
+                        label.setText(`${kData.name} [HP: ${agent.hp}]`);
                         label.setFill(id === 1 ? '#0f0' : '#0ff');
                         if (agent.body) agent.body.setVelocity(0, 0);
                     }
@@ -243,6 +259,11 @@ export default function createGame(containerId) {
                     this.targetCounterOn = state;
                 };
 
+                this.showTargetVision = false;
+                window.toggleTargetVision = (state) => {
+                    this.showTargetVision = state;
+                };
+
                 this.attackLine1 = this.add.graphics();
                 this.attackLine2 = this.add.graphics();
                 this.targetVision = this.add.graphics();
@@ -262,8 +283,9 @@ export default function createGame(containerId) {
 
                 // --- 타겟 행동 제어 ---
                 if (this.target && this.target.body) {
-                    const inFOV1 = this.visionSystem.checkInFOV(this.target, this.killer1, fovRadians, detectionRange);
-                    const inFOV2 = this.visionSystem.checkInFOV(this.target, this.killer2, fovRadians, detectionRange);
+                    const targetPerception = this.target.stats.perception;
+                    const inFOV1 = this.visionSystem.checkInFOV(this.target, this.killer1, fovRadians, targetPerception);
+                    const inFOV2 = this.visionSystem.checkInFOV(this.target, this.killer2, fovRadians, targetPerception);
 
                     const isPanicking = this.target.panicTime && time < this.target.panicTime;
                     const isFleeing = inFOV1 || inFOV2 || isPanicking;
@@ -348,7 +370,10 @@ export default function createGame(containerId) {
                     const visionAlpha = isFleeing ? 0.2 : 0.1;
                     const visionColor = isFleeing ? 0xff6600 : 0xff0000;
 
-                    this.visionSystem.renderRaycastVision(this.targetVision, this.target.x, this.target.y, targetAngle, detectionRange, fovRadians, visionColor, visionAlpha);
+                    this.targetVision.clear();
+                    if (this.showTargetVision) {
+                        this.visionSystem.renderRaycastVision(this.targetVision, this.target.x, this.target.y, targetAngle, targetPerception, fovRadians, visionColor, visionAlpha);
+                    }
 
                     const hpText = Math.max(0, this.target.hp);
                     const fullLabel = `${labelText} [HP: ${hpText}]`;
@@ -363,12 +388,48 @@ export default function createGame(containerId) {
                         const distToDetect = Phaser.Math.Distance.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
                         const targetLineOfSightBlocked = this.visionSystem.checkLineOfSightBlocked(this.target, nearestDetectedKiller);
 
-                        // 사거리 내에 있고, 벽에 가로막히지 않았으면 대응 사격
-                        if (distToDetect <= detectionRange && !targetLineOfSightBlocked && time > this.lastTargetHitTime + 800) {
-                            this.lastTargetHitTime = time;
-                            const hitAngle = Phaser.Math.Angle.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
-                            this.combatSystem.firePistol(this.target, nearestDetectedKiller, hitAngle);
+                        // 사거리 내에 있고, 벽에 가로막히지 않았으면 대응 사격 준비 (반응 속도 적용)
+                        if (distToDetect <= targetPerception && !targetLineOfSightBlocked) {
+                            if (this.target.engagedEnemy !== nearestDetectedKiller) {
+                                this.target.engagedEnemy = nearestDetectedKiller;
+                                this.target.engageStartTime = time;
+                            }
+
+                            if (time >= this.target.engageStartTime + this.target.stats.reactionSpeed) {
+                                if (!this.target.lastAttackTime || time > this.target.lastAttackTime + this.target.stats.attackSpeed) {
+                                    this.target.lastAttackTime = time;
+                                    const hitAngle = Phaser.Math.Angle.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
+                                    this.combatSystem.firePistol(this.target, nearestDetectedKiller, hitAngle);
+                                }
+                            }
+                        } else {
+                            this.target.engagedEnemy = null;
                         }
+                    }
+                }
+
+                // --- UI에 정보 업데이트 전송 ---
+                if (window.updateAgentInfo) {
+                    if (this.viewedAgent) {
+                        let aName = "UNKNOWN";
+                        let aColor = "#fff";
+                        if (this.viewedAgent === this.killer1) { aName = "KILLER 1"; aColor = "#0f0"; }
+                        else if (this.viewedAgent === this.killer2) { aName = "KILLER 2"; aColor = "#0ff"; }
+                        else if (this.viewedAgent === this.target) { aName = "TARGET"; aColor = "#f00"; }
+
+                        window.updateAgentInfo({
+                            name: aName,
+                            hp: this.viewedAgent.hp,
+                            damage: this.viewedAgent.stats?.damage ?? 'N/A',
+                            attackSpeed: this.viewedAgent.stats?.attackSpeed ?? 'N/A',
+                            accuracy: this.viewedAgent.stats?.accuracy ?? 'N/A',
+                            reactionSpeed: this.viewedAgent.stats?.reactionSpeed ?? 'N/A',
+                            intelligence: this.viewedAgent.stats?.intelligence ?? 'N/A',
+                            perception: this.viewedAgent.stats?.perception ?? 'N/A',
+                            color: aColor
+                        });
+                    } else {
+                        window.updateAgentInfo(null);
                     }
                 }
 
@@ -408,16 +469,17 @@ export default function createGame(containerId) {
                     agent.lastAngle = killerAngle;
                     agent.rotation = killerAngle;
 
+                    const killerPerception = agent.stats.perception;
                     const kAlpha = this.selectedAgent === agent ? 0.2 : 0.1;
                     if (this.showKillerVision) {
                         // Killers didn't check walls visually before, but let's give them raycast vision to match targets
-                        this.visionSystem.renderRaycastVision(vision, agent.x, agent.y, killerAngle, detectionRange, fovRadians, color, kAlpha, 30);
+                        this.visionSystem.renderRaycastVision(vision, agent.x, agent.y, killerAngle, killerPerception, fovRadians, color, kAlpha, 30);
                     }
 
                     const distToTarget = (this.target && this.target.active) ? Phaser.Math.Distance.Between(agent.x, agent.y, this.target.x, this.target.y) : Infinity;
                     const lineOfSightBlocked = this.visionSystem.checkLineOfSightBlocked(agent, this.target);
 
-                    if (!isAttacking && !dest && !lineOfSightBlocked && distToTarget <= detectionRange) {
+                    if (!isAttacking && !dest && !lineOfSightBlocked && distToTarget <= killerPerception) {
                         const angleToTarget = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
                         const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(angleToTarget - killerAngle));
 
@@ -435,22 +497,28 @@ export default function createGame(containerId) {
                     if (distToTarget <= currentAttackRange && !lineOfSightBlocked) {
                         agent.body.setVelocity(0, 0);
 
-                        if (time > this.lastHitTime + 500) {
-                            this.targetHits++;
-                            this.lastHitTime = time;
+                        if (agent.engagedEnemy !== this.target) {
+                            agent.engagedEnemy = this.target;
+                            agent.engageStartTime = time;
+                        }
 
-                            this.target.panicTime = time + 2000;
-                            this.target.panicSource = agent;
+                        if (time >= agent.engageStartTime + agent.stats.reactionSpeed) {
+                            if (!agent.lastAttackTime || time > agent.lastAttackTime + agent.stats.attackSpeed) {
+                                agent.lastAttackTime = time;
 
-                            const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
+                                this.target.panicTime = time + 2000;
+                                this.target.panicSource = agent;
 
-                            if (agent === this.killer1) {
-                                this.combatSystem.fireShotgun(agent, this.target, hitAngle, currentAttackRange);
-                            } else if (agent === this.killer2) {
-                                this.combatSystem.performMelee(agent, this.target, hitAngle, time);
+                                const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
+
+                                if (agent === this.killer1) {
+                                    this.combatSystem.fireShotgun(agent, this.target, hitAngle, currentAttackRange);
+                                } else if (agent === this.killer2) {
+                                    this.combatSystem.performMelee(agent, this.target, hitAngle, time);
+                                }
+
+                                if (this.target.hp <= 0) targetNeutralized = true;
                             }
-
-                            if (this.target.hp <= 0) targetNeutralized = true;
                         }
 
                         if (Phaser.Math.Between(0, 10) > 4) {
