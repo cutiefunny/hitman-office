@@ -6,8 +6,8 @@ function App() {
   let gameContainer; // Phaser 캔버스가 들어갈 div의 ref
   let gameInstance; // Phaser 게임 인스턴스를 저장할 변수
 
-  const [killer1On, setKiller1On] = createSignal(true);
-  const [killer2On, setKiller2On] = createSignal(true);
+  const [killer1On, setKiller1On] = createSignal(false);
+  const [killer2On, setKiller2On] = createSignal(false);
   const [showVision, setShowVision] = createSignal(false);
   const [targetCounterOn, setTargetCounterOn] = createSignal(false);
 

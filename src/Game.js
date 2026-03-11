@@ -4,13 +4,10 @@ import MovementSystem from './systems/MovementSystem';
 import VisionSystem from './systems/VisionSystem';
 import CombatSystem from './systems/CombatSystem';
 
-export default function createGame(containerId) {
-    let waypoints = [
-        { x: 700, y: 100 },
-        { x: 700, y: 500 }
-    ];
-    let currentWaypointIndex = 0;
+import mapUrl from './assets/maps/hitman1.json?url';
+import streetUrl from './assets/maps/street1.jpg';
 
+export default function createGame(containerId) {
     const config = {
         type: Phaser.AUTO,
         parent: containerId,
@@ -25,6 +22,10 @@ export default function createGame(containerId) {
             }
         },
         scene: {
+            preload: function () {
+                this.load.image('street', streetUrl);
+                this.load.tilemapTiledJSON('map', mapUrl);
+            },
             create: function () {
                 // 작전 상태 변수
                 this.selectedAgent = null;
@@ -43,18 +44,30 @@ export default function createGame(containerId) {
                 this.visionSystem = new VisionSystem(this);
                 this.combatSystem = new CombatSystem(this);
 
-                // 벽(장애물) 생성
-                const wallsData = [
-                    { x: 400, y: 150, w: 200, h: 20 },
-                    { x: 400, y: 450, w: 200, h: 20 },
-                    { x: 200, y: 300, w: 20, h: 200 },
-                    { x: 600, y: 300, w: 20, h: 200 }
-                ];
+                // 타일맵 로드
+                const map = this.make.tilemap({ key: 'map' });
+                const tileset = map.addTilesetImage('street', 'street');
+                map.createLayer('Ground', tileset, 0, 0);
 
+                // Start/Target 구역 데이터 로드
+                this.startArea = { x: 0, y: 0, width: 800, height: 600 };
+                const startLayer = map.getObjectLayer('Start');
+                if (startLayer && startLayer.objects.length > 0) this.startArea = startLayer.objects[0];
+
+                this.targetArea = { x: 0, y: 0, width: 800, height: 600 };
+                const targetLayer = map.getObjectLayer('Target');
+                if (targetLayer && targetLayer.objects.length > 0) this.targetArea = targetLayer.objects[0];
+                this.targetDest = null;
+
+                // 벽(장애물) 생성 (Blocks 레이어)
                 this.walls = this.physics.add.staticGroup();
-                wallsData.forEach(data => {
-                    this.walls.add(this.add.rectangle(data.x, data.y, data.w, data.h, 0x555555));
-                });
+                const blocksLayer = map.getObjectLayer('Blocks');
+                if (blocksLayer && blocksLayer.objects) {
+                    blocksLayer.objects.forEach(obj => {
+                        const wall = this.add.rectangle(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height, 0x555555, 0); // 0 = alpha (투명)
+                        this.walls.add(wall);
+                    });
+                }
 
                 // 최적화: 충돌 판정용 Rect 캐싱
                 this.cachedWallBounds = this.walls.getChildren().map(wall => wall.getBounds());
@@ -66,7 +79,7 @@ export default function createGame(containerId) {
                     fontSize: '18px'
                 });
 
-                this.killer1 = this.add.rectangle(100, 200, 32, 32, 0x00ff00);
+                this.killer1 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, 0x00ff00);
                 this.killer1.setStrokeStyle(2, 0x00ff00);
                 this.physics.add.existing(this.killer1);
                 this.killer1.body.setCollideWorldBounds(true);
@@ -74,8 +87,11 @@ export default function createGame(containerId) {
                 this.killer1.stats = { damage: 100, accuracy: 80 }; // 기본 공격력 100, 명중률 80%
                 this.killer1Label = this.add.text(75, 225, "KILLER 1 [HP: 100]", { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer1.setInteractive({ useHandCursor: true });
+                this.killer1.setActive(false).setVisible(false);
+                this.killer1.body.enable = false;
+                this.killer1Label.setActive(false).setVisible(false);
 
-                this.killer2 = this.add.rectangle(100, 400, 32, 32, 0x00ffff);
+                this.killer2 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, 0x00ffff);
                 this.killer2.setStrokeStyle(2, 0x00ffff);
                 this.physics.add.existing(this.killer2);
                 this.killer2.body.setCollideWorldBounds(true);
@@ -83,14 +99,19 @@ export default function createGame(containerId) {
                 this.killer2.stats = { damage: 30, accuracy: 100 }; // 근접공격: 공격력 30, 명중률 100%
                 this.killer2Label = this.add.text(75, 425, "KILLER 2 [HP: 100]", { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer2.setInteractive({ useHandCursor: true });
+                this.killer2.setActive(false).setVisible(false);
+                this.killer2.body.enable = false;
+                this.killer2Label.setActive(false).setVisible(false);
 
-                this.target = this.add.rectangle(waypoints[0].x, waypoints[0].y, 32, 32, 0xff0000);
+                const tx = this.targetArea.x + this.targetArea.width / 2;
+                const ty = this.targetArea.y + this.targetArea.height / 2;
+                this.target = this.add.rectangle(tx, ty, 32, 32, 0xff0000);
                 this.target.setStrokeStyle(2, 0xff0000);
                 this.physics.add.existing(this.target);
                 this.target.body.setCollideWorldBounds(true);
                 this.target.hp = 100; // 타겟 체력
                 this.target.stats = { damage: 100, accuracy: 100 }; // 타겟의 반격 총: 공격력 100, 명중률 100% (원샷원킬)
-                this.targetLabel = this.add.text(waypoints[0].x - 25, waypoints[0].y + 20, "TARGET [HP: 100]", { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
+                this.targetLabel = this.add.text(tx - 25, ty + 20, "TARGET [HP: 100]", { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
 
                 // 콜라이더 설정
                 this.physics.add.collider(this.target, this.walls);
@@ -194,6 +215,14 @@ export default function createGame(containerId) {
                         if (agent.body) agent.body.setVelocity(0, 0);
                         if (id === 1) { this.isAttacking1 = false; this.killer1Dest = null; }
                         else { this.isAttacking2 = false; this.killer2Dest = null; }
+                    } else if (isActive && (!agent.active || agent.hp <= 0)) {
+                        // 랜덤 시작 위치 지정
+                        agent.x = this.startArea.x + Math.random() * this.startArea.width;
+                        agent.y = this.startArea.y + Math.random() * this.startArea.height;
+                        agent.hp = 100;
+                        label.setText(`${id === 1 ? 'KILLER 1' : 'KILLER 2'} [HP: 100]`);
+                        label.setFill(id === 1 ? '#0f0' : '#0ff');
+                        if (agent.body) agent.body.setVelocity(0, 0);
                     }
 
                     if (agent) agent.setActive(isActive).setVisible(isActive);
@@ -274,12 +303,21 @@ export default function createGame(containerId) {
                                 labelColor = '#ff0';
                             }
                         } else {
-                            const dest = waypoints[currentWaypointIndex];
-                            const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, dest.x, dest.y);
+                            if (!this.targetDest) {
+                                this.targetDest = {
+                                    x: this.targetArea.x + Math.random() * this.targetArea.width,
+                                    y: this.targetArea.y + Math.random() * this.targetArea.height
+                                };
+                            }
+
+                            const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, this.targetDest.x, this.targetDest.y);
                             if (distToDest < 10) {
-                                currentWaypointIndex = (currentWaypointIndex + 1) % waypoints.length;
+                                this.targetDest = {
+                                    x: this.targetArea.x + Math.random() * this.targetArea.width,
+                                    y: this.targetArea.y + Math.random() * this.targetArea.height
+                                };
                             } else {
-                                this.movementSystem.moveWithAvoidance(this.target, dest, targetNormalSpeed);
+                                this.movementSystem.moveWithAvoidance(this.target, this.targetDest, targetNormalSpeed);
                             }
                             labelText = "TARGET";
                             labelColor = '#f00';
