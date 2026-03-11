@@ -67,6 +67,7 @@ export default function createGame(containerId) {
                 this.killer1 = this.add.rectangle(100, 200, 32, 32, 0x00ff00);
                 this.killer1.setStrokeStyle(2, 0x00ff00);
                 this.physics.add.existing(this.killer1);
+                this.killer1.body.setCollideWorldBounds(true);
                 this.killer1Label = this.add.text(75, 225, "KILLER 1", { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer1.setInteractive({ useHandCursor: true });
 
@@ -74,6 +75,7 @@ export default function createGame(containerId) {
                 this.killer2 = this.add.rectangle(100, 400, 32, 32, 0x00ffff);
                 this.killer2.setStrokeStyle(2, 0x00ffff);
                 this.physics.add.existing(this.killer2);
+                this.killer2.body.setCollideWorldBounds(true);
                 this.killer2Label = this.add.text(75, 425, "KILLER 2", { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer2.setInteractive({ useHandCursor: true });
 
@@ -81,6 +83,7 @@ export default function createGame(containerId) {
                 this.target = this.add.rectangle(waypoints[0].x, waypoints[0].y, 32, 32, 0xff0000);
                 this.target.setStrokeStyle(2, 0xff0000);
                 this.physics.add.existing(this.target);
+                this.target.body.setCollideWorldBounds(true);
                 this.targetLabel = this.add.text(waypoints[0].x - 25, waypoints[0].y + 20, "TARGET", { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
 
                 // 콜라이더 설정 (물리적 충돌 방지)
@@ -202,6 +205,12 @@ export default function createGame(containerId) {
 
                     this.statusText.setText(`[ 명령: KILLER ${id} - ${isActive ? '전투력 복원 (ONLINE)' : '무장 해제 (OFFLINE)'} ]`);
                     this.statusText.setFill(isActive ? (id === 1 ? '#0f0' : '#0ff') : '#888');
+                };
+
+                // --- 외부 API: 시야각 표시 토글 ---
+                this.showKillerVision = false; // 기본값 OFF
+                window.toggleKillerVision = (state) => {
+                    this.showKillerVision = state;
                 };
 
                 // --- 그래픽 효과 (공격 및 시야) ---
@@ -528,19 +537,21 @@ export default function createGame(containerId) {
                     agent.lastAngle = killerAngle;
                     agent.rotation = killerAngle; // 사각형 몸체도 회전
 
-                    // 킬러 시야 그리기 (90도 원뿔)
-                    const kFov = Phaser.Math.DegToRad(90);
-                    const kRange = 200;
+                    // 킬러 시야 크기 동기화 (타겟과 동일한 120도, 거리 250)
+                    const kFov = Phaser.Math.DegToRad(120);
+                    const kRange = 250;
                     const kAlpha = this.selectedAgent === agent ? 0.2 : 0.1;
 
-                    vision.lineStyle(1, color, kAlpha * 2);
-                    vision.fillStyle(color, kAlpha);
-                    vision.beginPath();
-                    vision.moveTo(agent.x, agent.y);
-                    vision.arc(agent.x, agent.y, kRange, killerAngle - kFov / 2, killerAngle + kFov / 2);
-                    vision.closePath();
-                    vision.fillPath();
-                    vision.strokePath();
+                    if (this.showKillerVision) {
+                        vision.lineStyle(1, color, kAlpha * 2);
+                        vision.fillStyle(color, kAlpha);
+                        vision.beginPath();
+                        vision.moveTo(agent.x, agent.y);
+                        vision.arc(agent.x, agent.y, kRange, killerAngle - kFov / 2, killerAngle + kFov / 2);
+                        vision.closePath();
+                        vision.fillPath();
+                        vision.strokePath();
+                    }
 
                     const distToTarget = (this.target && this.target.active)
                         ? Phaser.Math.Distance.Between(agent.x, agent.y, this.target.x, this.target.y)
@@ -588,11 +599,128 @@ export default function createGame(containerId) {
                             this.target.panicTime = time + 2000;
                             this.target.panicSource = agent;
 
-                            // Killer 2 (근접 전투) 특수 효과: 강력한 넉백 및 1초 스턴 (제압)
-                            if (agent === this.killer2) {
+                            const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
+
+                            if (agent === this.killer1) {
+                                // Killer 1 (원거리 전투): Hotline Miami 스타일 총격 연출
+                                // 1. 화면 흔들림 (Screen Shake)
+                                this.cameras.main.shake(100, 0.015);
+
+                                // 2. 총구 화염 (Muzzle Flash)
+                                const flashX = agent.x + Math.cos(hitAngle) * 20;
+                                const flashY = agent.y + Math.sin(hitAngle) * 20;
+                                const flash = this.add.circle(flashX, flashY, 12, 0xffff00);
+                                this.tweens.add({ targets: flash, alpha: 0, scale: 0.2, duration: 80, onComplete: () => flash.destroy() });
+
+                                // 3. 시각적 총알 (Shotgun Tracer)
+                                const bulletCount = 5;
+                                const spread = Math.PI / 6; // 부채꼴 퍼짐 각도
+                                const maxBulletDist = 1500; // 맵 밖으로 날아갈 최대 거리
+                                const intersectionArray = []; // GC 방지용 단일 배열
+
+                                for (let i = 0; i < bulletCount; i++) {
+                                    const angleOffset = hitAngle - (spread / 2) + (spread * (i / (bulletCount - 1)));
+
+                                    // 총알이 날아갈 선 생성
+                                    const farX = agent.x + Math.cos(angleOffset) * maxBulletDist;
+                                    const farY = agent.y + Math.sin(angleOffset) * maxBulletDist;
+                                    const bulletRay = new Phaser.Geom.Line(agent.x, agent.y, farX, farY);
+
+                                    let targetDestX = farX;
+                                    let targetDestY = farY;
+                                    let minDist = maxBulletDist;
+
+                                    // 벽 충돌 검사하여 도착점 계산
+                                    for (let wall of this.cachedWallBounds) {
+                                        intersectionArray.length = 0;
+                                        if (Phaser.Geom.Intersects.GetLineToRectangle(bulletRay, wall, intersectionArray)) {
+                                            for (let p of intersectionArray) {
+                                                const d = Phaser.Math.Distance.Between(agent.x, agent.y, p.x, p.y);
+                                                if (d < minDist) {
+                                                    minDist = d;
+                                                    targetDestX = p.x;
+                                                    targetDestY = p.y;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    const bullet = this.add.rectangle(agent.x, agent.y, 15, 3, 0xffdd00);
+                                    bullet.rotation = angleOffset;
+
+                                    // 총알 속도 조절 (거리에 비례해 속도를 일정하게)
+                                    const duration = (minDist / 800) * 150;
+
+                                    this.tweens.add({
+                                        targets: bullet,
+                                        x: targetDestX,
+                                        y: targetDestY,
+                                        duration: duration,
+                                        onComplete: () => {
+                                            bullet.destroy();
+                                            // 스파크 이펙트 (산탄 착탄점)
+                                            if (Math.random() > 0.3) {
+                                                const hitSpark = this.add.circle(bullet.x, bullet.y, Phaser.Math.Between(4, 7), 0xffaa00);
+                                                this.tweens.add({ targets: hitSpark, alpha: 0, scale: 1.5, duration: 150, onComplete: () => hitSpark.destroy() });
+                                            }
+                                        }
+                                    });
+                                }
+
+                                // 4. 반동 (Recoil)
+                                agent.x -= Math.cos(hitAngle) * 5;
+                                agent.y -= Math.sin(hitAngle) * 5;
+
+                            } else if (agent === this.killer2) {
+                                // Killer 2 (근접 전투): 강력한 넉백, 스턴 및 타격감
+                                const wasStunned = this.target.stunTime && time < this.target.stunTime;
                                 this.target.stunTime = time + 1000;
-                                const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
-                                this.target.body.setVelocity(Math.cos(hitAngle) * 500, Math.sin(hitAngle) * 500); // 넉백 파워
+
+                                // 이미 스턴(다운) 상태인 경우 추가 넉백 제한
+                                if (!wasStunned) {
+                                    this.target.body.setVelocity(Math.cos(hitAngle) * 500, Math.sin(hitAngle) * 500); // 넉백 파워
+                                }
+
+                                // 근접 타격 화면 흔들림 (원거리보다 강하게)
+                                this.cameras.main.shake(150, 0.025);
+
+                                // 타격 전진(Dash/Lunge) 연출
+                                agent.x += Math.cos(hitAngle) * 15;
+                                agent.y += Math.sin(hitAngle) * 15;
+
+                                // 근접 타격 십자 슬래시 이펙트 (X Slash)
+                                const slashColor = 0x00ffff; // 킬러2 고유색
+                                const slash1 = this.add.rectangle(this.target.x, this.target.y, 50, 4, slashColor);
+                                slash1.rotation = hitAngle + Math.PI / 4;
+                                const slash2 = this.add.rectangle(this.target.x, this.target.y, 50, 4, slashColor);
+                                slash2.rotation = hitAngle - Math.PI / 4;
+
+                                this.tweens.add({
+                                    targets: [slash1, slash2],
+                                    scaleX: 1.5,
+                                    scaleY: 0.1,
+                                    alpha: 0,
+                                    duration: 150,
+                                    ease: 'Expo.easeOut',
+                                    onComplete: () => { slash1.destroy(); slash2.destroy(); }
+                                });
+
+                                // 피 튀기는 효과 (Blood / Impact Splatter)
+                                for (let i = 0; i < 6; i++) {
+                                    const blood = this.add.circle(this.target.x, this.target.y, Phaser.Math.Between(4, 8), 0xff0000);
+                                    const spreadAngle = hitAngle + (Math.random() - 0.5) * Math.PI; // 타격 방향을 기준으로 퍼짐
+                                    const speed = Phaser.Math.Between(50, 150);
+
+                                    this.tweens.add({
+                                        targets: blood,
+                                        x: blood.x + Math.cos(spreadAngle) * speed,
+                                        y: blood.y + Math.sin(spreadAngle) * speed,
+                                        alpha: 0,
+                                        duration: 300,
+                                        ease: 'Cubic.easeOut',
+                                        onComplete: () => blood.destroy()
+                                    });
+                                }
                             }
 
                             if (this.targetHits >= 10) {
@@ -600,17 +728,8 @@ export default function createGame(containerId) {
                             }
                         }
 
-                        // 시각적 공격 효과 분리
+                        // 공격 중 타겟 테두리 반짝임 (피격 스트레스 표현)
                         if (Phaser.Math.Between(0, 10) > 4) {
-                            if (agent === this.killer1) {
-                                // 총기 발사 궤적 (레이저)
-                                line.lineStyle(2, 0x00ff00, 1);
-                                line.lineBetween(agent.x, agent.y, this.target.x, this.target.y);
-                            } else {
-                                // 근접 타격 충격파 이펙트 (슬래시 원형)
-                                line.lineStyle(4, 0x00ffff, 1);
-                                line.strokeCircle(this.target.x, this.target.y, 25);
-                            }
                             this.target.setStrokeStyle(4, 0xffffff);
                         } else {
                             this.target.setStrokeStyle(2, 0xff0000);

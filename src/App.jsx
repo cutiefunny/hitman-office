@@ -8,6 +8,7 @@ function App() {
 
   const [killer1On, setKiller1On] = createSignal(true);
   const [killer2On, setKiller2On] = createSignal(true);
+  const [showVision, setShowVision] = createSignal(false);
 
   const toggleKiller = (id) => {
     if (id === 1) {
@@ -19,6 +20,12 @@ function App() {
       setKiller2On(newState);
       if (window.toggleAgent) window.toggleAgent(2, newState);
     }
+  };
+
+  const toggleVision = () => {
+    const newState = !showVision();
+    setShowVision(newState);
+    if (window.toggleKillerVision) window.toggleKillerVision(newState);
   };
 
   onMount(() => {
@@ -74,6 +81,16 @@ function App() {
             </div>
             <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
             <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
+
+            <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>OPTIONS</h3>
+            <div
+              style={{ "margin-bottom": '10px', color: showVision() ? '#fff' : '#444', cursor: 'pointer', 'user-select': 'none' }}
+              onClick={toggleVision}
+              onMouseOver={(e) => { e.target.style.color = showVision() ? '#fff' : '#888'; }}
+              onMouseOut={(e) => { e.target.style.color = showVision() ? '#fff' : '#444'; }}
+            >
+              [{showVision() ? 'ON ' : 'OFF'}] 킬러 시야각 식별
+            </div>
           </div>
 
           <div style={{ 'margin-top': 'auto' }}>
