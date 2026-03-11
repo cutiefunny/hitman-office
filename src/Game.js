@@ -34,6 +34,7 @@ export default function createGame(containerId) {
                 this.isAttacking2 = false;
                 this.targetHits = 0;
                 this.lastHitTime = 0;
+                this.lastTargetHitTime = 0;
                 this.gameEnded = false;
                 this.isDragRotating = false;
 
@@ -65,28 +66,31 @@ export default function createGame(containerId) {
                     fontSize: '18px'
                 });
 
-                // --- 킬러1 ---
                 this.killer1 = this.add.rectangle(100, 200, 32, 32, 0x00ff00);
                 this.killer1.setStrokeStyle(2, 0x00ff00);
                 this.physics.add.existing(this.killer1);
                 this.killer1.body.setCollideWorldBounds(true);
-                this.killer1Label = this.add.text(75, 225, "KILLER 1", { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
+                this.killer1.hp = 100;
+                this.killer1.stats = { damage: 100, accuracy: 80 }; // 기본 공격력 100, 명중률 80%
+                this.killer1Label = this.add.text(75, 225, "KILLER 1 [HP: 100]", { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer1.setInteractive({ useHandCursor: true });
 
-                // --- 킬러2 ---
                 this.killer2 = this.add.rectangle(100, 400, 32, 32, 0x00ffff);
                 this.killer2.setStrokeStyle(2, 0x00ffff);
                 this.physics.add.existing(this.killer2);
                 this.killer2.body.setCollideWorldBounds(true);
-                this.killer2Label = this.add.text(75, 425, "KILLER 2", { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
+                this.killer2.hp = 100;
+                this.killer2.stats = { damage: 30, accuracy: 100 }; // 근접공격: 공격력 30, 명중률 100%
+                this.killer2Label = this.add.text(75, 425, "KILLER 2 [HP: 100]", { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
                 this.killer2.setInteractive({ useHandCursor: true });
 
-                // --- 타겟 ---
                 this.target = this.add.rectangle(waypoints[0].x, waypoints[0].y, 32, 32, 0xff0000);
                 this.target.setStrokeStyle(2, 0xff0000);
                 this.physics.add.existing(this.target);
                 this.target.body.setCollideWorldBounds(true);
-                this.targetLabel = this.add.text(waypoints[0].x - 25, waypoints[0].y + 20, "TARGET", { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
+                this.target.hp = 100; // 타겟 체력
+                this.target.stats = { damage: 100, accuracy: 100 }; // 타겟의 반격 총: 공격력 100, 명중률 100% (원샷원킬)
+                this.targetLabel = this.add.text(waypoints[0].x - 25, waypoints[0].y + 20, "TARGET [HP: 100]", { fill: '#f00', fontSize: '12px', fontFamily: 'monospace' });
 
                 // 콜라이더 설정
                 this.physics.add.collider(this.target, this.walls);
@@ -205,6 +209,11 @@ export default function createGame(containerId) {
                     this.showKillerVision = state;
                 };
 
+                this.targetCounterOn = false;
+                window.toggleTargetCounter = (state) => {
+                    this.targetCounterOn = state;
+                };
+
                 this.attackLine1 = this.add.graphics();
                 this.attackLine2 = this.add.graphics();
                 this.targetVision = this.add.graphics();
@@ -240,13 +249,30 @@ export default function createGame(containerId) {
                         nearestDetectedKiller = (inFOV1 && inFOV2) ? (dist1 < dist2 ? this.killer1 : this.killer2) : (inFOV1 ? this.killer1 : this.killer2);
                     }
 
+                    let labelText = "TARGET";
+                    let labelColor = '#f00';
+
                     if (isStunned) {
                         this.target.body.setVelocity(this.target.body.velocity.x * 0.9, this.target.body.velocity.y * 0.9);
-                        if (this.targetLabel.text !== "STUNNED") this.targetLabel.setText("STUNNED").setFill('#aaaaaa');
-                    } else {
+                        labelText = "STUNNED";
+                        labelColor = '#aaaaaa';
+                    } else if (nearestDetectedKiller && nearestDetectedKiller.active) {
                         if (isFleeing) {
-                            this.movementSystem.moveWithAvoidance(this.target, null, targetFleeSpeed, nearestDetectedKiller);
-                            if (this.targetLabel.text !== "CAUTION: EVADING") this.targetLabel.setText("CAUTION: EVADING").setFill('#ff0');
+                            if (this.targetCounterOn) {
+                                const distToKiller = Phaser.Math.Distance.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
+                                if (distToKiller > 200) {
+                                    this.movementSystem.moveWithAvoidance(this.target, nearestDetectedKiller, targetNormalSpeed);
+                                } else {
+                                    this.target.body.setVelocity(0, 0);
+                                    this.target.lastValidAngle = Phaser.Math.Angle.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
+                                }
+                                labelText = "ENGAGING";
+                                labelColor = '#ff5555';
+                            } else {
+                                this.movementSystem.moveWithAvoidance(this.target, null, targetFleeSpeed, nearestDetectedKiller);
+                                labelText = "CAUTION: EVADING";
+                                labelColor = '#ff0';
+                            }
                         } else {
                             const dest = waypoints[currentWaypointIndex];
                             const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, dest.x, dest.y);
@@ -255,8 +281,10 @@ export default function createGame(containerId) {
                             } else {
                                 this.movementSystem.moveWithAvoidance(this.target, dest, targetNormalSpeed);
                             }
-                            if (this.targetLabel.text !== "TARGET") this.targetLabel.setText("TARGET").setFill('#f00');
+                            labelText = "TARGET";
+                            labelColor = '#f00';
                         }
+
 
                         const speed = this.target.body.speed;
                         const moveAngle = speed > 5 ? Math.atan2(this.target.body.velocity.y, this.target.body.velocity.x) : (this.target.lastValidAngle || 0);
@@ -284,7 +312,26 @@ export default function createGame(containerId) {
 
                     this.visionSystem.renderRaycastVision(this.targetVision, this.target.x, this.target.y, targetAngle, detectionRange, fovRadians, visionColor, visionAlpha);
 
+                    const hpText = Math.max(0, this.target.hp);
+                    const fullLabel = `${labelText} [HP: ${hpText}]`;
+                    if (this.targetLabel.text !== fullLabel) {
+                        this.targetLabel.setText(fullLabel).setFill(labelColor);
+                    }
                     this.targetLabel.setPosition(this.target.x - 25, this.target.y + 20);
+
+                    // --- 타겟 자동 반격 (권총) ---
+                    if (this.targetCounterOn && nearestDetectedKiller && !isStunned) {
+                        // isFleeing 일 때 타겟이 교전에 들어갔으므로, 시야 조건과 무관하게 근방이면 사격 시도 가능 (패닉에 의해 시야 밖에 있어도)
+                        const distToDetect = Phaser.Math.Distance.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
+                        const targetLineOfSightBlocked = this.visionSystem.checkLineOfSightBlocked(this.target, nearestDetectedKiller);
+
+                        // 사거리 내에 있고, 벽에 가로막히지 않았으면 대응 사격
+                        if (distToDetect <= detectionRange && !targetLineOfSightBlocked && time > this.lastTargetHitTime + 800) {
+                            this.lastTargetHitTime = time;
+                            const hitAngle = Phaser.Math.Angle.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
+                            this.combatSystem.firePistol(this.target, nearestDetectedKiller, hitAngle);
+                        }
+                    }
                 }
 
                 // --- 킬러들 행동 처리 ---
@@ -303,6 +350,14 @@ export default function createGame(containerId) {
                     vision.clear();
 
                     if (!agent.active) return;
+
+                    if (agent.hp <= 0) {
+                        // 킬러 사망 처리
+                        agent.setActive(false).setVisible(false);
+                        agent.body.enable = false;
+                        label.setText(`[DEAD] ${data.id}`).setFill('#555');
+                        return;
+                    }
 
                     let killerAngle = agent.lastAngle || 0;
 
@@ -352,12 +407,12 @@ export default function createGame(containerId) {
                             const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
 
                             if (agent === this.killer1) {
-                                this.combatSystem.fireShotgun(agent, hitAngle, currentAttackRange);
+                                this.combatSystem.fireShotgun(agent, this.target, hitAngle, currentAttackRange);
                             } else if (agent === this.killer2) {
                                 this.combatSystem.performMelee(agent, this.target, hitAngle, time);
                             }
 
-                            if (this.targetHits >= 10) targetNeutralized = true;
+                            if (this.target.hp <= 0) targetNeutralized = true;
                         }
 
                         if (Phaser.Math.Between(0, 10) > 4) {
@@ -386,7 +441,8 @@ export default function createGame(containerId) {
                         }
                     }
 
-                    if (label && label.active) {
+                    if (label && label.active && agent.hp > 0) {
+                        label.setText(`${data.id} [HP: ${Math.max(0, agent.hp)}]`);
                         label.setPosition(agent.x - 25, agent.y + 20);
                     }
                 });

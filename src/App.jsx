@@ -9,6 +9,7 @@ function App() {
   const [killer1On, setKiller1On] = createSignal(true);
   const [killer2On, setKiller2On] = createSignal(true);
   const [showVision, setShowVision] = createSignal(false);
+  const [targetCounterOn, setTargetCounterOn] = createSignal(false);
 
   const toggleKiller = (id) => {
     if (id === 1) {
@@ -26,6 +27,12 @@ function App() {
     const newState = !showVision();
     setShowVision(newState);
     if (window.toggleKillerVision) window.toggleKillerVision(newState);
+  };
+
+  const toggleTargetCounter = () => {
+    const newState = !targetCounterOn();
+    setTargetCounterOn(newState);
+    if (window.toggleTargetCounter) window.toggleTargetCounter(newState);
   };
 
   onMount(() => {
@@ -81,6 +88,14 @@ function App() {
             </div>
             <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
             <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
+            <div
+              style={{ "margin-bottom": '10px', color: targetCounterOn() ? '#ff5555' : '#444', cursor: 'pointer', 'user-select': 'none' }}
+              onClick={toggleTargetCounter}
+              onMouseOver={(e) => { e.target.style.color = targetCounterOn() ? '#fff' : '#888'; }}
+              onMouseOut={(e) => { e.target.style.color = targetCounterOn() ? '#ff5555' : '#444'; }}
+            >
+              [{targetCounterOn() ? 'ON ' : 'OFF'}] 타겟 자동 반격 (권총)
+            </div>
 
             <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>OPTIONS</h3>
             <div
