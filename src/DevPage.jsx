@@ -235,10 +235,20 @@ export default function DevPage() {
                                     </div>
                                     <div style="margin-bottom: 24px;">
                                         <label style="font-size: 12px; font-weight: bold; color: #5f6368; display: block; margin-bottom: 8px;">Weaponry Case</label>
-                                        <select class="stat-input" value={killers()[selectedIndex()].attackType} onChange={(e) => updateKillerProp(selectedIndex(), 'attackType', e.target.value)}>
+                                        <select class="stat-input" value={killers()[selectedIndex()].attackType} onChange={(e) => {
+                                            const type = e.target.value;
+                                            updateKillerProp(selectedIndex(), 'attackType', type);
+                                            // 타입 변경 시 권장 사거리로 자동 조정
+                                            updateKillerProp(selectedIndex(), 'range', type === 'melee' ? 50 : 150);
+                                        }}>
                                             <option value="ranged">원거리 사격 형</option>
                                             <option value="melee">근접 격투 형</option>
                                         </select>
+                                    </div>
+                                    <div style="margin-bottom: 24px;">
+                                        <label style="font-size: 12px; font-weight: bold; color: #5f6368; display: block; margin-bottom: 8px;">Combat Range (사거리)</label>
+                                        <input type="number" class="stat-input" value={killers()[selectedIndex()].range || (killers()[selectedIndex()].attackType === 'melee' ? 50 : 150)} onInput={(e) => updateKillerProp(selectedIndex(), 'range', e.target.value)} />
+                                        <span style="font-size: 11px; color: #999;">* 근접은 50 이하, 원거리는 150 이상 권장</span>
                                     </div>
                                     <h4 style="font-size: 14px; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-top: 40px;">Core Stats</h4>
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">

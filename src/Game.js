@@ -317,72 +317,71 @@ export default function createGame(containerId) {
                         this.target.body.setVelocity(this.target.body.velocity.x * 0.9, this.target.body.velocity.y * 0.9);
                         labelText = "STUNNED";
                         labelColor = '#aaaaaa';
-                    } else if (nearestDetectedKiller && nearestDetectedKiller.active) {
-                        if (isFleeing) {
-                            if (this.targetCounterOn) {
-                                const distToKiller = Phaser.Math.Distance.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
-                                if (distToKiller > 200) {
-                                    this.movementSystem.moveWithAvoidance(this.target, nearestDetectedKiller, targetNormalSpeed);
-                                } else {
-                                    this.target.body.setVelocity(0, 0);
-                                    this.target.lastValidAngle = Phaser.Math.Angle.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
-                                }
-                                labelText = "ENGAGING";
-                                labelColor = '#ff5555';
+                    } else if (isFleeing && nearestDetectedKiller && nearestDetectedKiller.active) {
+                        if (this.targetCounterOn) {
+                            const distToKiller = Phaser.Math.Distance.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
+                            if (distToKiller > 200) {
+                                this.movementSystem.moveWithAvoidance(this.target, nearestDetectedKiller, targetNormalSpeed);
                             } else {
-                                this.movementSystem.moveWithAvoidance(this.target, null, targetFleeSpeed, nearestDetectedKiller);
-                                labelText = "CAUTION: EVADING";
-                                labelColor = '#ff0';
+                                this.target.body.setVelocity(0, 0);
+                                this.target.lastValidAngle = Phaser.Math.Angle.Between(this.target.x, this.target.y, nearestDetectedKiller.x, nearestDetectedKiller.y);
                             }
+                            labelText = "ENGAGING";
+                            labelColor = '#ff5555';
                         } else {
-                            if (!this.targetDest) {
-                                this.targetDest = {
-                                    x: this.targetArea.x + Math.random() * this.targetArea.width,
-                                    y: this.targetArea.y + Math.random() * this.targetArea.height
-                                };
-                            }
-
-                            const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, this.targetDest.x, this.targetDest.y);
-                            if (distToDest < 10) {
-                                this.targetDest = {
-                                    x: this.targetArea.x + Math.random() * this.targetArea.width,
-                                    y: this.targetArea.y + Math.random() * this.targetArea.height
-                                };
-                            } else {
-                                this.movementSystem.moveWithAvoidance(this.target, this.targetDest, targetNormalSpeed);
-                            }
-                            labelText = "TARGET";
-                            labelColor = '#f00';
+                            this.movementSystem.moveWithAvoidance(this.target, null, targetFleeSpeed, nearestDetectedKiller);
+                            labelText = "CAUTION: EVADING";
+                            labelColor = '#ff0';
+                        }
+                    } else {
+                        // WANDERING (No immediate threat or lost sight)
+                        if (!this.targetDest) {
+                            this.targetDest = {
+                                x: this.targetArea.x + Math.random() * this.targetArea.width,
+                                y: this.targetArea.y + Math.random() * this.targetArea.height
+                            };
                         }
 
-
-                        const speed = this.target.body.speed;
-                        const moveAngle = speed > 5 ? Math.atan2(this.target.body.velocity.y, this.target.body.velocity.x) : (this.target.lastValidAngle || 0);
-
-                        if (this.target.visualAngle === undefined) this.target.visualAngle = moveAngle;
-
-                        const diff = Phaser.Math.Angle.Wrap(moveAngle - this.target.visualAngle);
-                        if (Math.abs(diff) > Math.PI * 0.9) {
-                            const targetGoingDown = moveAngle > 0 && moveAngle < Math.PI;
-                            this.target.visualAngle += targetGoingDown ? 0.15 : -0.15;
+                        const distToDest = Phaser.Math.Distance.Between(this.target.x, this.target.y, this.targetDest.x, this.targetDest.y);
+                        if (distToDest < 10) {
+                            this.targetDest = {
+                                x: this.targetArea.x + Math.random() * this.targetArea.width,
+                                y: this.targetArea.y + Math.random() * this.targetArea.height
+                            };
                         } else {
-                            this.target.visualAngle = Phaser.Math.Angle.RotateTo(this.target.visualAngle, moveAngle, 0.2);
+                            this.movementSystem.moveWithAvoidance(this.target, this.targetDest, targetNormalSpeed);
                         }
-                        const targetAngle = this.target.visualAngle;
-                        this.target.rotation = targetAngle;
-
-                        if (speed > 5) {
-                            this.target.body.setVelocity(Math.cos(targetAngle) * speed, Math.sin(targetAngle) * speed);
-                        }
+                        labelText = "TARGET";
+                        labelColor = '#f00';
                     }
 
-                    const targetAngle = this.target.visualAngle || 0;
+                    // Common movement post-processing (rotation and velocity smoothing)
+                    const speed = this.target.body.speed;
+                    const moveAngle = speed > 5 ? Math.atan2(this.target.body.velocity.y, this.target.body.velocity.x) : (this.target.lastValidAngle || 0);
+
+                    if (this.target.visualAngle === undefined) this.target.visualAngle = moveAngle;
+
+                    const diff = Phaser.Math.Angle.Wrap(moveAngle - this.target.visualAngle);
+                    if (Math.abs(diff) > Math.PI * 0.9) {
+                        const targetGoingDown = moveAngle > 0 && moveAngle < Math.PI;
+                        this.target.visualAngle += targetGoingDown ? 0.15 : -0.15;
+                    } else {
+                        this.target.visualAngle = Phaser.Math.Angle.RotateTo(this.target.visualAngle, moveAngle, 0.2);
+                    }
+                    const targetVisualRotation = this.target.visualAngle;
+                    this.target.rotation = targetVisualRotation;
+
+                    if (speed > 5) {
+                        this.target.body.setVelocity(Math.cos(targetVisualRotation) * speed, Math.sin(targetVisualRotation) * speed);
+                    }
+
+                    const targetVisionAngle = this.target.visualAngle || 0;
                     const visionAlpha = isFleeing ? 0.2 : 0.1;
                     const visionColor = isFleeing ? 0xff6600 : 0xff0000;
 
                     this.targetVision.clear();
                     if (this.showTargetVision) {
-                        this.visionSystem.renderRaycastVision(this.targetVision, this.target.x, this.target.y, targetAngle, targetPerception, fovRadians, visionColor, visionAlpha);
+                        this.visionSystem.renderRaycastVision(this.targetVision, this.target.x, this.target.y, targetVisionAngle, targetPerception, fovRadians, visionColor, visionAlpha);
                     }
 
                     const hpText = Math.max(0, this.target.hp);
@@ -505,7 +504,8 @@ export default function createGame(containerId) {
                         }
                     }
 
-                    const currentAttackRange = agent.range || 150;
+                    // 근접 타입이면 사거리를 강제로 제한하여 원거리 발동 방지
+                    const currentAttackRange = agent.attackType === 'melee' ? 50 : (agent.range || 150);
 
                     if (distToTarget <= currentAttackRange && !lineOfSightBlocked) {
                         agent.body.setVelocity(0, 0);
