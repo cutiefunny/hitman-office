@@ -1,33 +1,29 @@
-import { onMount, onCleanup, createSignal, Show } from 'solid-js';
+import { onMount, onCleanup, createSignal, Show, For } from 'solid-js';
 import createGame from './Game';
 import DevPage from './DevPage';
-import { loadConfig } from './data/AgentConfig';
+import { loadConfig, getKillers } from './data/AgentConfig';
 
 function App() {
   let gameContainer; // Phaser 캔버스가 들어갈 div의 ref
   let gameInstance; // Phaser 게임 인스턴스를 저장할 변수
 
-  const [killer1On, setKiller1On] = createSignal(false);
-  const [killer2On, setKiller2On] = createSignal(false);
+  const [killerStates, setKillerStates] = createSignal({}); // { [id]: boolean }
+
   const [showVision, setShowVision] = createSignal(false);
   const [showTargetVision, setShowTargetVision] = createSignal(false);
   const [targetCounterOn, setTargetCounterOn] = createSignal(false);
   const [isDevMode, setIsDevMode] = createSignal(window.location.hash === '#dev');
   const [isLoading, setIsLoading] = createSignal(true);
 
+  const [killers, setKillers] = createSignal(getKillers());
   const [agentInfo, setAgentInfo] = createSignal(null);
   window.updateAgentInfo = setAgentInfo;
 
   const toggleKiller = (id) => {
-    if (id === 1) {
-      const newState = !killer1On();
-      setKiller1On(newState);
-      if (window.toggleAgent) window.toggleAgent(1, newState);
-    } else {
-      const newState = !killer2On();
-      setKiller2On(newState);
-      if (window.toggleAgent) window.toggleAgent(2, newState);
-    }
+    const currentState = !!killerStates()[id];
+    const newState = !currentState;
+    setKillerStates({ ...killerStates(), [id]: newState });
+    if (window.toggleAgent) window.toggleAgent(id, newState);
   };
 
   const toggleVision = () => {
@@ -51,6 +47,7 @@ function App() {
   onMount(async () => {
     // Firebase 데이터 로드
     await loadConfig();
+    setKillers(getKillers()); // 로드된 데이터를 시그널에 반영
     setIsLoading(false);
 
     // 컴포넌트가 화면에 붙을 때 Phaser 게임 생성
@@ -67,7 +64,7 @@ function App() {
     }
   });
 
-  const mainLayout = (
+  const renderMainLayout = () => (
     <div style={{
       display: 'flex',
       "flex-direction": 'column',
@@ -87,22 +84,20 @@ function App() {
         <aside style={{ width: '220px', "border-right": '1px solid #0f0', padding: '15px', "background-color": '#000', display: 'flex', 'flex-direction': 'column' }}>
           <div>
             <h3 style={{ "border-bottom": '1px solid #0f0' }}>AGENTS</h3>
-            <div
-              style={{ "margin-bottom": '10px', color: killer1On() ? '#00ff00' : '#444', cursor: 'pointer', 'user-select': 'none' }}
-              onClick={() => toggleKiller(1)}
-              onMouseOver={(e) => { if (killer1On()) e.target.style.color = '#fff'; }}
-              onMouseOut={(e) => { if (killer1On()) e.target.style.color = '#00ff00'; }}
-            >
-              [{killer1On() ? 'ON ' : 'OFF'}] KILLER 1 - {killer1On() ? '대기 중' : '비활성'}
-            </div>
-            <div
-              style={{ "margin-bottom": '10px', color: killer2On() ? '#00ffff' : '#444', cursor: 'pointer', 'user-select': 'none' }}
-              onClick={() => toggleKiller(2)}
-              onMouseOver={(e) => { if (killer2On()) e.target.style.color = '#fff'; }}
-              onMouseOut={(e) => { if (killer2On()) e.target.style.color = '#00ffff'; }}
-            >
-              [{killer2On() ? 'ON ' : 'OFF'}] KILLER 2 - {killer2On() ? '대기 중' : '비활성'}
-            </div>
+            <For each={killers()}>{(k) => {
+              const isOn = () => !!killerStates()[k.id];
+              const colorHex = '#' + k.color.toString(16).padStart(6, '0');
+              return (
+                <div
+                  style={{ "margin-bottom": '10px', color: isOn() ? colorHex : '#444', cursor: 'pointer', 'user-select': 'none' }}
+                  onClick={() => toggleKiller(k.id)}
+                  onMouseOver={(e) => { if (isOn()) e.target.style.color = '#fff'; }}
+                  onMouseOut={(e) => { if (isOn()) e.target.style.color = isOn() ? colorHex : '#444'; }}
+                >
+                  [{isOn() ? 'ON ' : 'OFF'}] {k.name} - {isOn() ? '대기 중' : '비활성'}
+                </div>
+              );
+            }}</For>
             <h3 style={{ "border-bottom": '1px solid #0f0', "margin-top": '20px' }}>TARGET</h3>
             <div style={{ "margin-bottom": '10px', color: '#ff0000' }}>[ON] TARGET - 미식별</div>
             <div
@@ -230,7 +225,7 @@ function App() {
         </div>
       </div>
     }>
-      {isDevMode() ? <DevPage /> : mainLayout}
+      {isDevMode() ? <DevPage /> : renderMainLayout()}
     </Show>
   );
 }

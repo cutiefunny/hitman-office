@@ -247,7 +247,14 @@ export default class CombatSystem {
                     if (!isHit) {
                         this.showFloatingText(target.x, target.y - 20, "MISS", "#ffffff");
                     } else {
-                        const finalDamage = stats.damage + Phaser.Math.Between(-10, 10);
+                        let finalDamage = stats.damage + Phaser.Math.Between(-10, 10);
+
+                        // 불굴(Indomitable) 능력이 있으면 받는 데미지 50% 감소
+                        if (target.specialAbilities && target.specialAbilities.includes('불굴')) {
+                            finalDamage = Math.floor(finalDamage * 0.5);
+                            this.showFloatingText(target.x, target.y - 40, "불굴!", "#0ff");
+                        }
+
                         target.hp -= finalDamage;
                         this.showFloatingText(target.x, target.y - 20, `-${finalDamage}`, "#ff0000");
 

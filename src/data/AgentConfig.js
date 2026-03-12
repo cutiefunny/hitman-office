@@ -16,7 +16,8 @@ export const DEFAULT_KILLERS = [
             "perception": 250
         },
         "attackType": "ranged",
-        "range": 150
+        "range": 150,
+        "specialAbilities": ["은신"]
     },
     {
         "id": 2,
@@ -32,7 +33,8 @@ export const DEFAULT_KILLERS = [
             "perception": 200
         },
         "attackType": "melee",
-        "range": 50
+        "range": 50,
+        "specialAbilities": ["불굴"]
     }
 ];
 

@@ -30,10 +30,7 @@ export default function createGame(containerId) {
             create: function () {
                 // 작전 상태 변수
                 this.selectedAgent = null;
-                this.killer1Dest = null;
-                this.killer2Dest = null;
-                this.isAttacking1 = false;
-                this.isAttacking2 = false;
+                this.killers = []; // 요원들을 관리하는 배열
                 this.targetHits = 0;
                 this.lastHitTime = 0;
                 this.lastTargetHitTime = 0;
@@ -85,29 +82,36 @@ export default function createGame(containerId) {
                 const killersData = getKillers();
                 const targetData = getTargetConfig();
 
-                this.killer1 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, killersData[0].color);
-                this.killer1.setStrokeStyle(2, killersData[0].color);
-                this.physics.add.existing(this.killer1);
-                this.killer1.body.setCollideWorldBounds(true);
-                this.killer1.hp = killersData[0].hp;
-                this.killer1.stats = { ...killersData[0].stats };
-                this.killer1Label = this.add.text(75, 225, `${killersData[0].name} [HP: ${this.killer1.hp}]`, { fill: '#0f0', fontSize: '12px', fontFamily: 'monospace' });
-                this.killer1.setInteractive({ useHandCursor: true });
-                this.killer1.setActive(false).setVisible(false);
-                this.killer1.body.enable = false;
-                this.killer1Label.setActive(false).setVisible(false);
+                killersData.forEach((kData, index) => {
+                    const agent = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, kData.color);
+                    agent.setStrokeStyle(2, kData.color);
+                    this.physics.add.existing(agent);
+                    agent.body.setCollideWorldBounds(true);
+                    agent.hp = kData.hp;
+                    agent.stats = { ...kData.stats };
+                    agent.attackType = kData.attackType;
+                    agent.range = kData.range;
+                    agent.specialAbilities = kData.specialAbilities || [];
 
-                this.killer2 = this.add.rectangle(this.startArea.x, this.startArea.y, 32, 32, killersData[1].color);
-                this.killer2.setStrokeStyle(2, killersData[1].color);
-                this.physics.add.existing(this.killer2);
-                this.killer2.body.setCollideWorldBounds(true);
-                this.killer2.hp = killersData[1].hp;
-                this.killer2.stats = { ...killersData[1].stats };
-                this.killer2Label = this.add.text(75, 425, `${killersData[1].name} [HP: ${this.killer2.hp}]`, { fill: '#0ff', fontSize: '12px', fontFamily: 'monospace' });
-                this.killer2.setInteractive({ useHandCursor: true });
-                this.killer2.setActive(false).setVisible(false);
-                this.killer2.body.enable = false;
-                this.killer2Label.setActive(false).setVisible(false);
+                    const label = this.add.text(75, 225 + (index * 200), `${kData.name} [HP: ${agent.hp}]`, { fill: Phaser.Display.Color.IntegerToColor(kData.color).rgba, fontSize: '12px', fontFamily: 'monospace' });
+
+                    agent.setInteractive({ useHandCursor: true });
+                    agent.setActive(false).setVisible(false);
+                    agent.body.enable = false;
+                    label.setActive(false).setVisible(false);
+
+                    this.killers.push({
+                        agent,
+                        label,
+                        data: kData,
+                        dest: null,
+                        isAttacking: false,
+                        vision: this.add.graphics(),
+                        attackLine: this.add.graphics(),
+                        id: kData.name,
+                        index: index + 1 // 1-based ID for external API
+                    });
+                });
 
                 const tx = this.targetArea.x + this.targetArea.width / 2;
                 const ty = this.targetArea.y + this.targetArea.height / 2;
@@ -121,11 +125,13 @@ export default function createGame(containerId) {
 
                 // 콜라이더 설정
                 this.physics.add.collider(this.target, this.walls);
-                this.physics.add.collider(this.killer1, this.walls);
-                this.physics.add.collider(this.killer2, this.walls);
-                this.physics.add.collider(this.killer1, this.killer2);
-                this.physics.add.collider(this.killer1, this.target);
-                this.physics.add.collider(this.killer2, this.target);
+                this.killers.forEach(k => {
+                    this.physics.add.collider(k.agent, this.walls);
+                    this.physics.add.collider(k.agent, this.target);
+                    this.killers.forEach(other => {
+                        if (k !== other) this.physics.add.collider(k.agent, other.agent);
+                    });
+                });
 
                 this.target.setInteractive({ useHandCursor: true });
 
@@ -137,57 +143,51 @@ export default function createGame(containerId) {
                         const clicked = gameObjects[0];
 
                         // 클릭한 대상이 킬러이거나 타겟일 경우 정보 열람 대상으로 설정
-                        if ((clicked === this.killer1 && this.killer1.active) ||
-                            (clicked === this.killer2 && this.killer2.active) ||
-                            clicked === this.target) {
+                        const clickedKiller = this.killers.find(k => k.agent === clicked);
+                        if ((clickedKiller && clickedKiller.agent.active) || clicked === this.target) {
                             this.viewedAgent = clicked;
                         }
 
-                        if ((clicked === this.killer1 && this.killer1.active) || (clicked === this.killer2 && this.killer2.active)) {
+                        if (clickedKiller && clickedKiller.agent.active) {
                             this.isDragRotating = true;
 
                             if (this.selectedAgent === clicked) {
-                                let color = clicked === this.killer1 ? 0x00ff00 : 0x00ffff;
-                                clicked.setStrokeStyle(2, color);
+                                clicked.setStrokeStyle(2, clickedKiller.data.color);
                                 this.selectedAgent = null;
                                 this.isDragRotating = false;
                                 this.statusText.setText("[ 위성 해킹: 작전 대기 중 ]");
                             } else {
                                 if (this.selectedAgent) {
-                                    let prevColor = this.selectedAgent === this.killer1 ? 0x00ff00 : 0x00ffff;
-                                    this.selectedAgent.setStrokeStyle(2, prevColor);
+                                    const prevKiller = this.killers.find(k => k.agent === this.selectedAgent);
+                                    if (prevKiller) this.selectedAgent.setStrokeStyle(2, prevKiller.data.color);
                                 }
                                 this.selectedAgent = clicked;
                                 clicked.setStrokeStyle(4, 0xffffff);
-                                this.statusText.setText(`[ 요원 식별: ${clicked === this.killer1 ? "KILLER 1" : "KILLER 2"} 선택됨 ]`);
+                                this.statusText.setText(`[ 요원 식별: ${clickedKiller.id} 선택됨 ]`);
                             }
                             return;
                         }
 
                         if (clicked === this.target && this.selectedAgent) {
-                            if (this.selectedAgent === this.killer1) {
-                                this.isAttacking1 = true;
-                                this.killer1Dest = null;
-                            } else {
-                                this.isAttacking2 = true;
-                                this.killer2Dest = null;
+                            const currentKiller = this.killers.find(k => k.agent === this.selectedAgent);
+                            if (currentKiller) {
+                                currentKiller.isAttacking = true;
+                                currentKiller.dest = null;
+                                this.statusText.setText(`[ 명령: ${currentKiller.id} 타겟 추격 및 교전 ]`);
+                                this.statusText.setFill('#f00');
                             }
-                            this.statusText.setText(`[ 명령: ${this.selectedAgent === this.killer1 ? "KILLER 1" : "KILLER 2"} 타겟 추격 및 교전 ]`);
-                            this.statusText.setFill('#f00');
                             return;
                         }
                     }
 
                     if (this.selectedAgent) {
-                        if (this.selectedAgent === this.killer1) {
-                            this.killer1Dest = { x: pointer.worldX, y: pointer.worldY };
-                            this.isAttacking1 = false;
-                        } else {
-                            this.killer2Dest = { x: pointer.worldX, y: pointer.worldY };
-                            this.isAttacking2 = false;
+                        const currentKiller = this.killers.find(k => k.agent === this.selectedAgent);
+                        if (currentKiller) {
+                            currentKiller.dest = { x: pointer.worldX, y: pointer.worldY };
+                            currentKiller.isAttacking = false;
+                            this.statusText.setText(`[ 명령: ${currentKiller.id} 지점 이동 하달 ]`);
+                            this.statusText.setFill('#0f0');
                         }
-                        this.statusText.setText(`[ 명령: ${this.selectedAgent === this.killer1 ? "KILLER 1" : "KILLER 2"} 지점 이동 하달 ]`);
-                        this.statusText.setFill('#0f0');
                     }
                 });
 
@@ -199,14 +199,14 @@ export default function createGame(containerId) {
                 window.commandAutoAttack = () => {
                     if (this.gameEnded) return;
                     if (this.target && this.target.active) {
-                        this.isAttacking1 = true;
-                        this.killer1Dest = null;
-                        this.isAttacking2 = true;
-                        this.killer2Dest = null;
+                        this.killers.forEach(k => {
+                            k.isAttacking = true;
+                            k.dest = null;
+                        });
 
                         if (this.selectedAgent) {
-                            let color = this.selectedAgent === this.killer1 ? 0x00ff00 : 0x00ffff;
-                            this.selectedAgent.setStrokeStyle(2, color);
+                            const cur = this.killers.find(k => k.agent === this.selectedAgent);
+                            if (cur) this.selectedAgent.setStrokeStyle(2, cur.data.color);
                             this.selectedAgent = null;
                         }
 
@@ -217,27 +217,27 @@ export default function createGame(containerId) {
 
                 window.toggleAgent = (id, isActive) => {
                     if (this.gameEnded) return;
-                    let agent = id === 1 ? this.killer1 : this.killer2;
-                    let label = id === 1 ? this.killer1Label : this.killer2Label;
+                    const k = this.killers.find(item => item.index === id);
+                    if (!k) return;
+
+                    const agent = k.agent;
+                    const label = k.label;
 
                     if (!isActive) {
                         if (this.selectedAgent === agent) {
-                            this.selectedAgent.setStrokeStyle(2, id === 1 ? 0x00ff00 : 0x00ffff);
+                            this.selectedAgent.setStrokeStyle(2, k.data.color);
                             this.selectedAgent = null;
                         }
                         if (agent.body) agent.body.setVelocity(0, 0);
-                        if (id === 1) { this.isAttacking1 = false; this.killer1Dest = null; }
-                        else { this.isAttacking2 = false; this.killer2Dest = null; }
+                        k.isAttacking = false;
+                        k.dest = null;
                     } else if (isActive && (!agent.active || agent.hp <= 0)) {
-                        // 랜덤 시작 위치 지정 및 설정된 데이터로 스탯 복원
-                        const dat = getKillers();
-                        const kData = id === 1 ? dat[0] : dat[1];
                         agent.x = this.startArea.x + Math.random() * this.startArea.width;
                         agent.y = this.startArea.y + Math.random() * this.startArea.height;
-                        agent.hp = kData.hp;
-                        agent.stats = { ...kData.stats };
-                        label.setText(`${kData.name} [HP: ${agent.hp}]`);
-                        label.setFill(id === 1 ? '#0f0' : '#0ff');
+                        agent.hp = k.data.hp;
+                        agent.stats = { ...k.data.stats };
+                        label.setText(`${k.id} [HP: ${agent.hp}]`);
+                        label.setFill(Phaser.Display.Color.IntegerToColor(k.data.color).rgba);
                         if (agent.body) agent.body.setVelocity(0, 0);
                     }
 
@@ -245,8 +245,8 @@ export default function createGame(containerId) {
                     if (label) label.setActive(isActive).setVisible(isActive);
                     if (agent && agent.body) agent.body.enable = isActive;
 
-                    this.statusText.setText(`[ 명령: KILLER ${id} - ${isActive ? '전투력 복원 (ONLINE)' : '무장 해제 (OFFLINE)'} ]`);
-                    this.statusText.setFill(isActive ? (id === 1 ? '#0f0' : '#0ff') : '#888');
+                    this.statusText.setText(`[ 명령: ${k.id} - ${isActive ? '전투력 복원 (ONLINE)' : '무장 해제 (OFFLINE)'} ]`);
+                    this.statusText.setFill(isActive ? '#0f0' : '#888');
                 };
 
                 this.showKillerVision = false;
@@ -264,11 +264,8 @@ export default function createGame(containerId) {
                     this.showTargetVision = state;
                 };
 
-                this.attackLine1 = this.add.graphics();
-                this.attackLine2 = this.add.graphics();
                 this.targetVision = this.add.graphics();
-                this.killer1Vision = this.add.graphics();
-                this.killer2Vision = this.add.graphics();
+                // 개별 킬러 비전 및 라인은 killers 배열 생성 시 내부에서 graphics 생성하여 소속시킴
             },
 
             update: function (time) {
@@ -284,20 +281,33 @@ export default function createGame(containerId) {
                 // --- 타겟 행동 제어 ---
                 if (this.target && this.target.body) {
                     const targetPerception = this.target.stats.perception;
-                    const inFOV1 = this.visionSystem.checkInFOV(this.target, this.killer1, fovRadians, targetPerception);
-                    const inFOV2 = this.visionSystem.checkInFOV(this.target, this.killer2, fovRadians, targetPerception);
+                    const inFOVs = this.killers.filter(k => k.agent.active).map(k => {
+                        // 은신(Stealth) 능력치가 있으면 타겟이 식별할 수 있는 거리가 50% 감소함
+                        const effectivePerception = k.agent.specialAbilities.includes('은신') ? targetPerception * 0.5 : targetPerception;
+                        return {
+                            inFOV: this.visionSystem.checkInFOV(this.target, k.agent, fovRadians, effectivePerception),
+                            killer: k
+                        };
+                    });
 
                     const isPanicking = this.target.panicTime && time < this.target.panicTime;
-                    const isFleeing = inFOV1 || inFOV2 || isPanicking;
+                    const anyInFOV = inFOVs.some(item => item.inFOV);
+                    const isFleeing = anyInFOV || isPanicking;
                     const isStunned = this.target.stunTime && time < this.target.stunTime;
 
                     let nearestDetectedKiller;
                     if (isPanicking) {
                         nearestDetectedKiller = this.target.panicSource;
                     } else {
-                        const dist1 = Phaser.Math.Distance.Between(this.target.x, this.target.y, this.killer1.x, this.killer1.y);
-                        const dist2 = Phaser.Math.Distance.Between(this.target.x, this.target.y, this.killer2.x, this.killer2.y);
-                        nearestDetectedKiller = (inFOV1 && inFOV2) ? (dist1 < dist2 ? this.killer1 : this.killer2) : (inFOV1 ? this.killer1 : this.killer2);
+                        const detected = inFOVs.filter(item => item.inFOV);
+                        if (detected.length > 0) {
+                            detected.sort((a, b) => {
+                                const d1 = Phaser.Math.Distance.Between(this.target.x, this.target.y, a.killer.agent.x, a.killer.agent.y);
+                                const d2 = Phaser.Math.Distance.Between(this.target.x, this.target.y, b.killer.agent.x, b.killer.agent.y);
+                                return d1 - d2;
+                            });
+                            nearestDetectedKiller = detected[0].killer.agent;
+                        }
                     }
 
                     let labelText = "TARGET";
@@ -413,9 +423,15 @@ export default function createGame(containerId) {
                     if (this.viewedAgent) {
                         let aName = "UNKNOWN";
                         let aColor = "#fff";
-                        if (this.viewedAgent === this.killer1) { aName = "KILLER 1"; aColor = "#0f0"; }
-                        else if (this.viewedAgent === this.killer2) { aName = "KILLER 2"; aColor = "#0ff"; }
-                        else if (this.viewedAgent === this.target) { aName = "TARGET"; aColor = "#f00"; }
+
+                        const kObj = this.killers.find(k => k.agent === this.viewedAgent);
+                        if (kObj) {
+                            aName = kObj.id;
+                            aColor = Phaser.Display.Color.IntegerToColor(kObj.data.color).rgba;
+                        } else if (this.viewedAgent === this.target) {
+                            aName = "TARGET";
+                            aColor = "#f00";
+                        }
 
                         window.updateAgentInfo({
                             name: aName,
@@ -434,15 +450,13 @@ export default function createGame(containerId) {
                 }
 
                 // --- 킬러들 행동 처리 ---
-                const agents = [
-                    { agent: this.killer1, dest: this.killer1Dest, isAttacking: this.isAttacking1, line: this.attackLine1, vision: this.killer1Vision, label: this.killer1Label, id: "KILLER 1", color: 0x00ff00 },
-                    { agent: this.killer2, dest: this.killer2Dest, isAttacking: this.isAttacking2, line: this.attackLine2, vision: this.killer2Vision, label: this.killer2Label, id: "KILLER 2", color: 0x00ffff }
-                ];
+                const agents = this.killers;
 
                 let targetNeutralized = false;
 
                 agents.forEach(data => {
-                    let { agent, dest, isAttacking, line, vision, label, color } = data;
+                    let { agent, dest, isAttacking, vision, label, data: kData, attackLine: line } = data;
+                    const color = kData.color;
                     if (!agent || !agent.body) return;
 
                     line.clear();
@@ -484,15 +498,14 @@ export default function createGame(containerId) {
                         const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(angleToTarget - killerAngle));
 
                         if (angleDiff <= fovRadians / 2) {
-                            if (agent === this.killer1) this.isAttacking1 = true;
-                            else this.isAttacking2 = true;
+                            data.isAttacking = true;
                             isAttacking = true;
                             this.statusText.setText(`[ 시스템 경고: ${data.id} 타겟 식별, 강제 교전 개시 ]`);
                             this.statusText.setFill('#ff6600');
                         }
                     }
 
-                    const currentAttackRange = agent === this.killer1 ? 150 : 50;
+                    const currentAttackRange = agent.range || 150;
 
                     if (distToTarget <= currentAttackRange && !lineOfSightBlocked) {
                         agent.body.setVelocity(0, 0);
@@ -511,9 +524,9 @@ export default function createGame(containerId) {
 
                                 const hitAngle = Phaser.Math.Angle.Between(agent.x, agent.y, this.target.x, this.target.y);
 
-                                if (agent === this.killer1) {
+                                if (agent.attackType === 'ranged') {
                                     this.combatSystem.fireShotgun(agent, this.target, hitAngle, currentAttackRange);
-                                } else if (agent === this.killer2) {
+                                } else if (agent.attackType === 'melee') {
                                     this.combatSystem.performMelee(agent, this.target, hitAngle, time);
                                 }
 
@@ -527,22 +540,24 @@ export default function createGame(containerId) {
                             this.target.setStrokeStyle(2, 0xff0000);
                         }
                     } else {
+                        // 대시(Dash) 능력치가 있으면 이동속도 50% 증가
+                        const currentKillerSpeed = agent.specialAbilities.includes('대시') ? killerSpeed * 1.5 : killerSpeed;
+
                         if (isAttacking && this.target && this.target.active) {
-                            this.movementSystem.moveWithAvoidance(agent, this.target, killerSpeed);
+                            this.movementSystem.moveWithAvoidance(agent, this.target, currentKillerSpeed);
                         } else if (dest) {
                             const d = Phaser.Math.Distance.Between(agent.x, agent.y, dest.x, dest.y);
                             if (d < 10) {
                                 agent.body.setVelocity(0, 0);
-                                if (agent === this.killer1) this.killer1Dest = null;
-                                else this.killer2Dest = null;
+                                data.dest = null;
                             } else {
-                                this.movementSystem.moveWithAvoidance(agent, dest, killerSpeed);
+                                this.movementSystem.moveWithAvoidance(agent, dest, currentKillerSpeed);
                             }
                         } else {
                             agent.body.setVelocity(0, 0);
                         }
 
-                        if (!this.isAttacking1 && !this.isAttacking2) {
+                        if (!this.killers.some(k => k.isAttacking)) {
                             if (this.target && this.target.active) this.target.setStrokeStyle(2, 0xff0000);
                         }
                     }
@@ -556,13 +571,12 @@ export default function createGame(containerId) {
                 if (targetNeutralized) {
                     this.target.destroy();
                     this.targetLabel.destroy();
-                    this.isAttacking1 = this.isAttacking2 = false;
+                    this.killers.forEach(k => k.isAttacking = false);
                     this.gameEnded = true;
                     this.statusText.setText("[ TARGET NEUTRALIZED: MISSION ACCOMPLISHED ]");
                     this.statusText.setFill('#0f0');
                     this.add.text(400, 300, "MISSION COMPLETE", { fontSize: '64px', fill: '#0f0', fontFamily: 'monospace', fontWeight: 'bold' }).setOrigin(0.5);
-                    this.killer1.body.setVelocity(0, 0);
-                    this.killer2.body.setVelocity(0, 0);
+                    this.killers.forEach(k => k.agent.body.setVelocity(0, 0));
                 }
             }
         }
